@@ -23,7 +23,15 @@ tools/thread-viz/run.sh                       # alarm-*, priority-*, bench-* 전
 tools/thread-viz/run.sh priority-donate-nest  # 원하는 테스트만
 ```
 
+`mlfqs-*` 테스트는 오래 걸려서 기본 목록에 없음. `MLFQS=1 tools/thread-viz/run.sh`로 포함하거나 이름을 직접 줌.
+
+테스트마다 QEMU 기록/재생으로 채점한 실행 그대로를 추적하고, 정확성 점수와 별개로 효율 점수(실행 명령어 수 기준)도 매김. 결과는 `tools/thread-viz/traces/`에 저장됨. 수집 중 Ctrl-C를 누르면 그때까지의 트레이스를 저장하고 끝남.
+
 실행하면 `http://localhost:8000/viewer.html` 주소가 나옴. 포트가 이미 쓰이고 있으면 `VIEW_PORT=9000 tools/thread-viz/run.sh`처럼 바꿈. 자세한 사용법과 옵션은 [tools/thread-viz/README.md](tools/thread-viz/README.md)에 있음.
+
+주의:
+- 화면의 점수는 재미용임. 최종 채점은 `make check`로 할 것.
+- `run.sh`를 동시에 두 개 돌리지 말 것. 호스트와 컨테이너에서 같이 돌리는 것도 안 됨. gdb 포트(1234~)와 `traces/`를 같이 씀.
 
 ### 업데이트
 
@@ -31,7 +39,7 @@ tools/thread-viz/run.sh priority-donate-nest  # 원하는 테스트만
 
 ### 벤치 테스트
 
-`pintos-bench/`에 부하 테스트 3개(`bench-lock-storm`, `bench-sleep-wave`, `bench-cond-relay`) 소스가 있음. `pintos/tests/threads/`에 복사하고 `tests.c`, `tests.h`, `Make.tests`에 등록해야 함. 없어도 나머지 테스트는 돌아감. 각 테스트 설명은 [tools/thread-viz/README.md](tools/thread-viz/README.md)의 "벤치 테스트" 절에 있음.
+`pintos-bench/`에 부하 테스트 3개(`bench-lock-storm`, `bench-sleep-wave`, `bench-cond-relay`) 소스가 있음. `pintos/tests/threads/`에 복사하고 `tests.c`, `tests.h`에 등록하고 `Make.tests`의 `threads_SRC`에만 추가해야 함 (`threads_TESTS`에 넣으면 `make check` 대상이 됨). 없어도 나머지 테스트는 돌아감. 각 테스트 설명은 [tools/thread-viz/README.md](tools/thread-viz/README.md)의 "벤치 테스트" 절에 있음.
 
 ## 라이선스
 
