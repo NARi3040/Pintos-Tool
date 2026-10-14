@@ -11,15 +11,17 @@ PINTOS="$HERE/../../pintos"
 BUILD="$PINTOS/threads/build"
 export PATH="$PATH:$PINTOS/utils"
 mkdir -p "$HERE/traces"
-# 시작할 때 새 버전이 있으면 받아서 적용하고 새 run.sh로 다시 시작함 (네트워크가 안 되면 조용히 넘어감).
+# 시작할 때 새 버전이 있으면 받아서 적용하고 새 run.sh로 다시 시작함 (네트워크가 안 되면 실패했다고 알리고 계속함).
 # 건너뛰려면 --no-update 인자 또는 NO_UPDATE_CHECK=1
 skip="${NO_UPDATE_CHECK:-0}"; args=()
 for a in "$@"; do if [ "$a" = --no-update ]; then skip=1; else args+=("$a"); fi; done
 set -- ${args[@]+"${args[@]}"}
 if [ "$skip" != 1 ]; then
     python3 "$HERE/update.py" --auto; rc=$?
-    [ "$rc" = 10 ] && exec "$HERE/run.sh" --no-update "$@"
+    [ "$rc" = 10 ] && THREAD_VIZ_UPDATED=1 exec "$HERE/run.sh" --no-update "$@"
     [ "$rc" != 0 ] && echo "업데이트 실패 (위 메시지 참고). 지금 버전으로 계속함"
+elif [ -z "${THREAD_VIZ_UPDATED:-}" ]; then
+    echo "[thread-viz] v$(cat "$HERE/VERSION" 2>/dev/null || echo '?') - 업데이트 확인 건너뜀"
 fi
 
 # 측정 전에 커널을 처음부터 다시 빌드함 (make -B). 다른 환경(호스트/컨테이너 gcc)에서 만든 오래된 오브젝트가 섞이지 않게.

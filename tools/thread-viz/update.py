@@ -4,7 +4,7 @@
   python3 tools/thread-viz/update.py            새 버전이 있으면 받아서 적용
   python3 tools/thread-viz/update.py --check    확인만
   python3 tools/thread-viz/update.py --auto     run.sh가 시작할 때 부름. 새 버전이 있으면 바로 적용(종료 코드 10).
-                                                최신이거나 네트워크가 안 되면 조용히 끝남
+                                                최신이면 "최신 버전입니다!", 네트워크가 안 되면 실패했다고 알리고 끝남
 
 환경 변수: THREAD_VIZ_REPO (기본 NARi3040/Pintos-Tool), THREAD_VIZ_API (기본 https://api.github.com)
 """
@@ -23,6 +23,29 @@ def get(url, timeout):
         return r.read()
 
 
+def download(url, timeout):
+    """받으면서 진행도를 보여줌. 터미널이면 한 줄을 덮어쓰고, 아니면 25%마다 한 줄씩 찍음"""
+    req = urllib.request.Request(url, headers={"User-Agent": "thread-viz-update"})
+    buf, shown = bytearray(), -1
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        total = int(r.headers.get("Content-Length") or 0)
+        while True:
+            chunk = r.read(16384)
+            if not chunk:
+                break
+            buf += chunk
+            pct = len(buf) * 100 // total if total else -1
+            line = f"  받는 중 [{'#' * (pct // 5):<20}] {pct}% ({len(buf) // 1024}/{total // 1024} KB)" if total else f"  받는 중 {len(buf) // 1024} KB"
+            if sys.stdout.isatty():
+                print("\r" + line, end="", flush=True)
+            elif total and pct // 25 != shown // 25:
+                print(line, flush=True)
+            shown = pct
+    if sys.stdout.isatty():
+        print()
+    return bytes(buf)
+
+
 def local_version():
     try:
         return int(open(os.path.join(HERE, "VERSION")).read().strip())
@@ -34,7 +57,7 @@ def latest(timeout):
     rel = json.loads(get(f"{API}/repos/{REPO}/releases/latest", timeout))
     tag = rel["tag_name"]
     assets = {a["name"]: a["browser_download_url"] for a in rel["assets"]}
-    return int(tag.lstrip("v")), assets
+    return int(tag.lstrip("v")), assets, (rel.get("body") or "").strip()
 
 
 def apply(data):
@@ -68,26 +91,34 @@ def main():
     auto = "--auto" in sys.argv
     cur = local_version()
     try:
-        ver, assets = latest(5 if auto or check else 15)
+        ver, assets, body = latest(5 if auto or check else 15)
     except Exception as e:
+        if auto:
+            print(f"[thread-viz] v{cur} - 업데이트 확인 실패 (오프라인?). 지금 버전으로 실행함")
         if check or auto:
             sys.exit(0)
         sys.exit(f"업데이트 서버에 연결 못 함: {e}")
     if ver <= cur:
-        if not (check or auto):
-            print(f"최신 버전임 (v{cur})")
+        if not check:
+            print(f"[thread-viz] v{cur} - 최신 버전입니다!")
         return
     if check:
         print(f"[thread-viz] 새 버전 v{ver} 있음 (지금 v{cur}). 업데이트: python3 tools/thread-viz/update.py")
         return
     if "thread-viz.tar.gz" not in assets or "thread-viz.tar.gz.sha256" not in assets:
         sys.exit(f"v{ver} 릴리스에 thread-viz.tar.gz 또는 .sha256 이 없음")
-    data = get(assets["thread-viz.tar.gz"], 120)
+    print(f"[thread-viz] 새 버전 v{ver} 발견 (지금 v{cur}). 업데이트함")
+    if body:
+        print("  변경 내용: " + body.splitlines()[0])
+    data = download(assets["thread-viz.tar.gz"], 120)
     want = get(assets["thread-viz.tar.gz.sha256"], 15).decode().split()[0]
     if hashlib.sha256(data).hexdigest() != want:
-        sys.exit("sha256이 안 맞음. 받은 파일이 깨졌으니 적용 안 함")
+        sys.exit("  sha256이 안 맞음. 받은 파일이 깨졌으니 적용 안 함")
+    print("  sha256 확인 완료. 파일 교체 중")
     names = apply(data)
-    print(f"v{cur} -> v{ver} 업데이트함 ({len(names)}개 파일)")
+    for n in names:
+        print(f"    - {n}")
+    print(f"[thread-viz] v{cur} -> v{ver} 업데이트 완료 ({len(names)}개 파일)")
     if auto:
         sys.exit(10)
 
