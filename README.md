@@ -39,7 +39,7 @@ tools/thread-viz/run.sh priority-donate-nest  # 원하는 테스트만
 
 ### 벤치 테스트
 
-`pintos-bench/`에 부하 테스트 3개(`bench-lock-storm`, `bench-sleep-wave`, `bench-cond-relay`) 소스가 있음. `pintos/tests/threads/`에 복사하고 `tests.c`, `tests.h`에 등록하고 `Make.tests`의 `threads_SRC`에만 추가해야 함 (`threads_TESTS`에 넣으면 `make check` 대상이 됨). 없어도 나머지 테스트는 돌아감. 각 테스트 설명은 [tools/thread-viz/README.md](tools/thread-viz/README.md)의 "벤치 테스트" 절에 있음.
+`tools/thread-viz/bench/`에 부하 테스트 4개(`bench-lock-storm`, `bench-sleep-wave`, `bench-cond-relay`, `bench-scale`)가 있음. `bench-scale`은 리스트 길이에 따라 비용이 느는지 보는 복잡도 판정용임. `run.sh`를 처음 실행할 때 설치할지 물어보고, `y`면 `pintos/tests/threads/`에 복사한 뒤 `tests.c`, `tests.h`, `Make.tests`(`threads_SRC`에만. `make check` 대상은 아님)에 등록함. 대답은 저장돼서 다시 묻지 않음. `BENCH=1` / `BENCH=0`으로 정할 수 있고, 지우려면 `python3 tools/thread-viz/bench.py remove`임. 설치 안 해도 공식 테스트는 돌아감. 각 테스트 설명은 [tools/thread-viz/README.md](tools/thread-viz/README.md)의 "벤치 테스트" 절에 있음.
 
 ## 라이선스
 

@@ -24,6 +24,10 @@ elif [ -z "${THREAD_VIZ_UPDATED:-}" ]; then
     echo "[thread-viz] v$(cat "$HERE/VERSION" 2>/dev/null || echo '?') - 업데이트 확인 건너뜀"
 fi
 
+# 벤치 테스트(bench/): 처음 한 번 설치할지 묻고 대답을 bench.choice에 저장함. BENCH=1이면 설치, BENCH=0이면 안 함.
+# 설치하면 pintos/tests/threads/의 tests.c, tests.h, Make.tests가 바뀌므로 빌드 전에 함. 지우려면 python3 tools/thread-viz/bench.py remove
+python3 "$HERE/bench.py" auto || true
+
 # 측정 전에 커널을 처음부터 다시 빌드함 (make -B). 다른 환경(호스트/컨테이너 gcc)에서 만든 오래된 오브젝트가 섞이지 않게.
 # make clean은 build/를 통째로 지워 make check 결과까지 사라지므로 쓰지 않음. REBUILD=0이면 바뀐 파일만 빌드
 [ "${REBUILD:-1}" = 1 ] && MFLAGS="-B" || MFLAGS=""
