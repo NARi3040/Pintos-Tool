@@ -616,6 +616,51 @@ function efficiency(T, fatal) {
       <td class="mono">${p.calls[f][0]}</td><td class="mono">${cmp(avg(p.calls[f]), b && avg(b.calls[f]))}</td><td class="mono">${n(p.calls[f][2])}</td></tr>`).join("")}</table>`;
 }
 
+// 복잡도 판정 (기준 구현과 무관한 절대 판정): 호출 시작 때의 리스트 길이 n과 그 호출의 명령어 수를 모아서
+// 비용이 n에 따라 늘어나는 정도를 상수(0) / 선형(1) / 선형 초과(2)로 나눔. 허용 상한을 넘으면 비효율.
+// 상한: timer_interrupt는 상수 (깨울 스레드가 없으면 sleep_list를 훑지 않아야 함), 나머지는 선형까지
+// (순서대로 끼워 넣거나 가장 높은 priority를 고르는 건 선형이 정상). 길이가 충분히 달라지는 테스트(bench-scale)에서만 판정함
+const CX_NAME = ["상수", "선형", "선형 초과"];
+const CX_MAX = { timer_interrupt: 0 };
+const CX_MIN_N = 16, CX_MIN_POINTS = 4;
+function classify(sc) {
+  const pts = Object.entries(sc).map(([n, [c, sum]]) => ({ n: +n, c, v: sum / c })).sort((a, b) => a.n - b.n);
+  const nmax = pts.length ? pts[pts.length - 1].n : 0;
+  if (pts.length < CX_MIN_POINTS || nmax < CX_MIN_N) return null;
+  // 호출 수로 가중한 최소제곱 직선. 길이 nmax일 때 늘어난 양 / 길이 0 비용 = 증가율
+  const W = pts.reduce((a, p) => a + p.c, 0), mx = pts.reduce((a, p) => a + p.c * p.n, 0) / W, my = pts.reduce((a, p) => a + p.c * p.v, 0) / W;
+  const sxx = pts.reduce((a, p) => a + p.c * (p.n - mx) ** 2, 0), sxy = pts.reduce((a, p) => a + p.c * (p.n - mx) * (p.v - my), 0);
+  const slope = sxx ? sxy / sxx : 0, base = Math.max(my - slope * mx, 1), growth = slope * nmax / base;
+  if (growth < 0.25) return { cls: 0, growth, slope, base, nmax };
+  // 선형인지 그 이상인지: 가장 짧은 길이보다 늘어난 양을 로그-로그로 맞춰 지수를 구함
+  const lo = pts[0], hi = pts.filter(p => p.n >= nmax / 4 && p.v > lo.v && p.n > lo.n);
+  let k = 1;
+  if (hi.length >= 2) {
+    const xs = hi.map(p => Math.log(p.n - lo.n)), ys = hi.map(p => Math.log(p.v - lo.v));
+    const ax = xs.reduce((a, b) => a + b) / xs.length, ay = ys.reduce((a, b) => a + b) / ys.length;
+    const d = xs.reduce((a, x) => a + (x - ax) ** 2, 0);
+    if (d) k = xs.reduce((a, x, i) => a + (x - ax) * (ys[i] - ay), 0) / d;
+  }
+  return { cls: k > 1.5 ? 2 : 1, growth, slope, base, nmax, k };
+}
+function complexity(T) {
+  T.cx = null;
+  const sc = T.perf && T.perf.scale;
+  if (!sc) return "";
+  const rows = Object.keys(sc).sort().map(fn => [fn, classify(sc[fn])]).filter(r => r[1]);
+  if (!rows.length) return "";
+  const bad = rows.filter(([fn, r]) => r.cls > (CX_MAX[fn] ?? 1));
+  T.cx = { bad: bad.length, total: rows.length };
+  return `<div class="score"><div class="big">${bad.length ? "❌" : "✅"}</div><div><div class="gr">복잡도 판정 · 절대 기준</div>
+    <ul><li>${bad.length ? `비효율 ${bad.length}개: ${bad.map(r => `<code>${r[0]}</code>`).join(", ")}` : `판정한 ${rows.length}개 함수 모두 허용 범위 안`}</li></ul></div></div>
+    <table><tr><th>함수</th><th>길이에 따른 비용</th><th>허용 상한</th><th>길이 0 비용</th><th>길이당 증가</th><th>길이 ${rows[0][1].nmax}까지 증가율</th><th>판정</th></tr>${rows.map(([fn, r]) => {
+      const mx = CX_MAX[fn] ?? 1, ok = r.cls <= mx;
+      return `<tr><td><code>${fn}</code></td><td>${CX_NAME[r.cls]}</td><td>${CX_NAME[mx]}</td><td class="mono">${Math.round(r.base).toLocaleString()}</td>
+      <td class="mono">${r.slope.toFixed(1)}</td><td class="mono">${r.growth < 0 ? "" : "+"}${(r.growth * 100).toFixed(0)}%</td><td>${ok ? "✅" : "❌"}</td></tr>`;
+    }).join("")}</table>
+    <div class="note">호출 시작 때의 리스트 길이(timer는 sleep_list, 동기화는 기다리는 줄, thread_*는 ready_list)와 명령어 수의 관계로 판정함. 증가율 25% 미만이면 상수, 그 이상이면 선형, 증가가 길이의 1.5제곱보다 가파르면 선형 초과임. 선형 초과는 n log n(list_sort)과 구분이 안 될 수 있음.</div>`;
+}
+
 function metrics(T) {
   const E = T.events, start = Math.max(0, E.findIndex(e => e.kind === "run_test"));
   const tk = e => e.snap.tick ?? 0;
@@ -714,6 +759,7 @@ function metrics(T) {
     ${T.layout ? `<div class="note">감지한 구조: ${Object.entries(T.layout).map(([k, v]) => `${k}=<code>${esc(v || "없음")}</code>`).join(", ")}${T.mlfqs ? " · MLFQS 모드(donation 검사 생략)" : ""}${
       !T.layout.donations ? " · donations 필드 없음 → donation 그래프·4번 검사 생략" : ""}</div>` : ""}
     ${efficiency(T, fatal)}
+    ${complexity(T)}
     <div class="note">tick = 10ms 타이머 단위. 한 tick 안의 차이는 "다른 스레드 이벤트 수" 열로 봄. 같은 테스트를 코드 수정 전후로 비교할 때 의미 있음.</div>`;
 }
 
