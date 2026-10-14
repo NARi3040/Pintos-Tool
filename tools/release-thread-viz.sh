@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # thread-viz를 GitHub Release로 배포함. 사용법: tools/release-thread-viz.sh "변경 내용"
+# 보통은 v<N> 태그 push 시 .github/workflows/release.yml이 실행함. 로컬에서 직접 돌리면 커밋 안 된 파일이 배포될 수 있음
 # tools/thread-viz/VERSION 값이 릴리스 태그(v<N>)가 됨. 올리기 전에 VERSION을 먼저 올릴 것.
 set -euo pipefail
 REPO="${THREAD_VIZ_REPO:-NARi3040/Pintos-Tool}"

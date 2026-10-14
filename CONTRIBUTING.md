@@ -78,8 +78,13 @@ main ←─ PR (리뷰 1명) ←─ feat/bench-scale
 
 1. 배포할 변경이 모두 `main`에 머지된 상태에서 시작함.
 2. `tools/thread-viz/VERSION`의 정수를 1 올리고 `chore: thread-viz v<N>`으로 커밋 (PR 경유).
-3. `tools/release-thread-viz.sh "변경 내용 한 줄"` 실행. 태그 `v<N>`, tarball, sha256, `latest.json`이 올라감.
-4. 다른 Pintos 저장소에서 설치 명령(README의 `curl ... | tar`)과 자동 업데이트를 한 번씩 확인함.
+3. 최신 `main`에서 태그를 만들어 push함. GitHub Actions(`.github/workflows/release.yml`)가 태그 커밋을 checkout해서 tarball, sha256, `latest.json`을 올림. 태그 메시지가 릴리스 노트가 됨.
+   ```bash
+   git switch main && git pull
+   git tag -a v<N> -m "변경 내용 한 줄" && git push origin v<N>
+   ```
+   태그와 `VERSION`이 다르면 Actions가 실패하고 릴리스는 안 만들어짐. 로컬에서 `tools/release-thread-viz.sh`를 직접 돌리지 말 것 (커밋 안 된 로컬 파일이 배포될 수 있음).
+4. Actions 탭에서 성공했는지 보고, 다른 Pintos 저장소에서 설치 명령(README의 `curl ... | tar`)과 자동 업데이트를 한 번씩 확인함.
 
 규칙:
 
