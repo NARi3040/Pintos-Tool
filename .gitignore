@@ -2,6 +2,7 @@
 tools/thread-viz/traces/
 tools/thread-viz/data.js
 tools/thread-viz/progress.json
+tools/thread-viz/bench.choice
 
 # OMC 에이전트 상태
 .omc/

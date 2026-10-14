@@ -401,7 +401,8 @@ PERF = icount() is not None
 PERF_FUNCS = ("lock_acquire", "lock_release", "sema_down", "sema_up", "cond_wait", "cond_signal",
               "cond_broadcast", "thread_set_priority", "thread_yield", "timer_sleep", "thread_unblock")
 # thread_create는 뺌: 비용 대부분(~11만 명령어)이 원본 palloc의 페이지 0 채우기라 동기화 비용을 가림
-perf = {"calls": {}, "tick": [0, 0, 0], "top": 0, "sw": 0, "instr": 0}   # calls/tick: [횟수, 합, 최대]
+perf = {"calls": {}, "tick": [0, 0, 0], "top": 0, "sw": 0, "instr": 0, "scale": {}}   # calls/tick: [횟수, 합, 최대]
+# scale[함수][리스트 길이] = [횟수, 명령어 합]. 길이에 따라 비용이 어떻게 느는지 보려고 호출 시작 때 길이를 같이 잼
 cpu, pend, excl = {}, {}, set()   # 스레드별 CPU 명령어 수, 진행 중인 호출 스택, intr_handler 안에 있는 스레드
 acct = {"run": None, "mark": 0, "start": None}
 
@@ -416,6 +417,45 @@ def settle():
 
 def stat(s, c):
     s[0] += 1; s[1] += c; s[2] = max(s[2], c)
+
+def scale_add(fn, n, c):
+    if n is not None:
+        e = perf["scale"].setdefault(fn, {}).setdefault(str(n), [0, 0])
+        e[0] += 1; e[1] += c
+
+def list_len(head):
+    """list 길이. 읽을 수 없으면 None (비용 측정에는 영향 없음: gdb 메모리 읽기는 게스트 명령어를 안 돌림)"""
+    try:
+        es = walk_addr(head, 4096)
+    except (gdb.error, gdb.MemoryError):
+        return None
+    return None if es is None else len(es)
+
+def sleep_len():
+    try:
+        return list_len(int(gdb.parse_and_eval("(long)&" + SLEEP_SYM))) if SLEEP_SYM else None
+    except gdb.error:
+        return None
+
+def ready_len():
+    try:
+        ns = [list_len(int(gdb.parse_and_eval("(long)&" + sym))) for sym in READY_SYMS]
+    except gdb.error:
+        return None
+    return None if None in ns else sum(ns)
+
+def size_of(fn):
+    """호출이 시작될 때 이 함수가 다루는 리스트의 길이 (타이머는 sleep_list, 동기화는 기다리는 줄)"""
+    if fn in ("timer_interrupt", "timer_sleep"):
+        return sleep_len()
+    if fn in ("thread_unblock", "thread_yield", "thread_set_priority"):
+        return ready_len()
+    a = arg(0)
+    if fn in ("sema_down", "sema_up"):
+        return list_len(a + SEMA_WAITERS)
+    if fn in ("lock_acquire", "lock_release"):
+        return list_len(a + LOCK_SEMA + SEMA_WAITERS)
+    return list_len(a + COND_WAITERS)   # cond_*
 
 def perf_on(f):
     def g():
@@ -438,12 +478,14 @@ def p_intr(enter):
         (excl.add if enter else excl.discard)(tid_of(cur_addr()))
     return f
 
-tick0 = [None]
-def p_tick_in():  tick0[0] = icount()
+tick0 = [None, None]
+def p_tick_in():  tick0[:] = [icount(), sleep_len()]
 def p_tick_out():
     if tick0[0] is not None:
-        stat(perf["tick"], icount() - tick0[0])
-        tick0[0] = None
+        c = icount() - tick0[0]
+        stat(perf["tick"], c)
+        scale_add("timer_interrupt", tick0[1], c)
+        tick0[:] = [None, None]
 
 def p_call(fn, enter):
     def f():
@@ -453,10 +495,12 @@ def p_call(fn, enter):
             return
         st = pend.setdefault(t, [])
         if enter:
-            st.append((fn, cpu.get(t, 0)))
+            st.append((fn, cpu.get(t, 0), size_of(fn)))
         elif st and st[-1][0] == fn:
-            c = cpu.get(t, 0) - st.pop()[1]
+            _, c0, n = st.pop()
+            c = cpu.get(t, 0) - c0
             stat(perf["calls"].setdefault(fn, [0, 0, 0]), c)
+            scale_add(fn, n, c)
             if not st:
                 perf["top"] += c   # 바깥쪽 호출만 합산 (lock_acquire 안의 sema_down을 두 번 세지 않게)
     return f
