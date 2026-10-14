@@ -1,0 +1,12 @@
+# 실행 결과물 (tools/thread-viz/.gitignore와 같은 항목, 루트에서도 막음)
+tools/thread-viz/traces/
+tools/thread-viz/data.js
+tools/thread-viz/progress.json
+
+# OMC 에이전트 상태
+.omc/
+
+# 임시 파일
+*~
+*.swp
+.DS_Store

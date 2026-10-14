@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# run.sh가 PATH 맨 앞에 두는 QEMU 래퍼. RR=record|replay, RR_FILE=<기록 파일>, GDB_PORT=<포트>
+# GDB_PORT: pintos --gdb가 붙이는 -s(포트 1234 고정)를 이 포트로 바꿈. 테스트를 동시에 돌릴 때 포트가 안 겹치게 함
+# record: gdb 없이 실제로 돌린 실행을 기록함 (이 출력으로 채점)
+# replay: 기록을 그대로 재생함. gdb 훅으로 멈춰도 가상 시간과 인터럽트 시점이 기록과 똑같아서, 트레이스가 채점한 실행과 일치함
+# 기록/재생에는 디스크를 blkreplay로 감싸야 해서, pintos가 넘긴 -drive file=...,index=N 인자를 같은 IDE 위치(N/2번 버스, N%2번 유닛)로 바꿔 끼움
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$SELF_DIR" | paste -sd:)"
+
+args=() prev=""
+for a in "$@"; do
+    if [[ $a == -s && -n ${GDB_PORT:-} ]]; then
+        args+=(-gdb "tcp:127.0.0.1:$GDB_PORT")
+    elif [[ -n ${RR:-} && $prev == -drive && $a == file=*index=* ]]; then
+        f=${a#file=}; f=${f%%,*}; n=${a##*index=}; n=${n%%,*}
+        args=("${args[@]:0:${#args[@]}-1}")   # 앞에 넣은 -drive 제거
+        args+=(-drive "file=$f,format=raw,if=none,id=d$n"
+               -drive "driver=blkreplay,if=none,image=d$n,id=r$n"
+               -device "ide-hd,drive=r$n,bus=ide.$((n / 2)),unit=$((n % 2))")
+    else
+        args+=("$a")
+    fi
+    prev=$a
+done
+[ -z "${RR:-}" ] && exec qemu-system-x86_64 "${args[@]}"
+# shift=auto: 가상 시간이 실제 시간을 따라가서 make check와 타이밍이 비슷함. 기록 모드에선 그 흐름이 기록되므로 재생은 결정적임
+# -net none: 기본 NIC(PXE 롬)는 기록/재생을 지원 안 함
+exec qemu-system-x86_64 "${args[@]}" -net none -icount "shift=auto,rr=$RR,rrfile=$RR_FILE"
