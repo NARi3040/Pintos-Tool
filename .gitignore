@@ -7,6 +7,9 @@ tools/thread-viz/bench.choice
 # OMC 에이전트 상태
 .omc/
 
+# Claude Code 워크트리
+.claude/worktrees/
+
 # 임시 파일
 *~
 *.swp
