@@ -42,7 +42,7 @@ python3 tools/thread-viz/update.py --check   # 확인만
 - GitHub Releases(`NARi3040/Pintos-Tool`)의 최신 `thread-viz.tar.gz`를 받아 sha256을 확인한 뒤 `tools/thread-viz/`에 덮어씀. 실패하면 지금 버전으로 계속 실행함
 - `traces/`, `data.js`, `progress.json`은 건드리지 않음. `baseline.js`는 이미 있으면 덮어쓰지 않음
 - 버전은 `VERSION` 파일의 정수임
-- `pintos-bench/`의 벤치 테스트 소스와 `pintos/`는 업데이트 대상이 아님
+- `bench/`의 벤치 소스는 같이 갱신되고, 이미 설치한 사본은 다음 `run.sh` 때 바뀐 것만 다시 복사함. `pintos/`의 다른 파일은 건드리지 않음
 
 ## 사용법
 
@@ -81,7 +81,16 @@ gdb가 타이밍을 흔들지 않으니 테스트를 동시에 돌림 (`JOBS`, �
 ### 벤치 테스트 (`bench-*`)
 
 공식 테스트는 짧고 스레드가 적어서 맞게 짠 구현은 거의 다 100점이 나옴. 점수 차이를 보려고 부하 테스트 3개와, 복잡도 판정용 `bench-scale`을 넣음.
-`pintos/tests/threads/bench-*.c`, `tests.c`/`tests.h` 등록, `Make.tests`의 `threads_SRC`에만 추가해서 커널에는 들어가지만 `make check` 대상(`threads_TESTS`)은 아님.
+소스는 `tools/thread-viz/bench/`에 있음. `run.sh`를 처음 실행할 때 설치할지 물어보고 대답을 `bench.choice`에 저장함. `y`면 `pintos/tests/threads/bench-*.c`/`.ck`를 복사하고 `tests.c`, `tests.h` 등록, `Make.tests`의 `threads_SRC`에만 추가해서 커널에는 들어가지만 `make check` 대상(`threads_TESTS`)은 아님. **이때 사용자 저장소의 이 세 파일이 바뀜** (`git diff`에 보임).
+
+```bash
+BENCH=1 tools/thread-viz/run.sh              # 묻지 않고 설치 (BENCH=0이면 설치 안 함)
+python3 tools/thread-viz/bench.py status     # 설치 상태
+python3 tools/thread-viz/bench.py remove     # 파일과 등록을 되돌리고 다시 안 물음
+```
+
+- 터미널이 아니면(파이프 등) 묻지 않고 설치 안 함. 예전에 직접 설치해 둔 사람은 동의한 것으로 보고 빠진 벤치만 채움
+- 등록할 위치를 못 찾으면(파일 형식이 다름) 아무것도 바꾸지 않고 알려줌
 
 | 테스트 | 하는 일 | 테스트 자체 검사 (FAIL 조건) |
 |---|---|---|
