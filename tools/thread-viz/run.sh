@@ -11,6 +11,16 @@ PINTOS="$HERE/../../pintos"
 BUILD="$PINTOS/threads/build"
 export PATH="$PATH:$PINTOS/utils"
 mkdir -p "$HERE/traces"
+# Windows git(core.autocrlf=true)로 받은 저장소는 utils/pintos 등의 shebang이 'python3\r'이 돼서 실행이 안 됨.
+# 사용자 파일은 그대로 두고, shebang의 인터프리터로 직접 실행하는 래퍼를 traces/.shim에 만들어 PATH 맨 앞에 둠
+SHIM="$HERE/traces/.shim"; rm -rf "$SHIM"
+for f in "$PINTOS"/utils/*; do
+    IFS= read -r first < "$f" 2>/dev/null || continue
+    [[ $first == '#!'*$'\r' ]] || continue
+    first="${first#\#!}"; mkdir -p "$SHIM"
+    printf '#!/bin/sh\nexec %s "%s" "$@"\n' "${first%$'\r'}" "$f" > "$SHIM/${f##*/}" && chmod +x "$SHIM/${f##*/}"
+done
+[ -d "$SHIM" ] && export PATH="$SHIM:$PATH"
 # 시작할 때 새 버전이 있으면 받아서 적용하고 새 run.sh로 다시 시작함 (네트워크가 안 되면 실패했다고 알리고 계속함).
 # 건너뛰려면 --no-update 인자 또는 NO_UPDATE_CHECK=1
 skip="${NO_UPDATE_CHECK:-0}"; args=()
