@@ -14,6 +14,8 @@ tar -czf "$OUT/thread-viz.tar.gz" --owner=0 --group=0 \
     tools/thread-viz/bin/qemu-system-x86_64 \
     --transform 's#^LICENSE$#tools/thread-viz/LICENSE#' LICENSE
 (cd "$OUT" && sha256sum thread-viz.tar.gz > thread-viz.tar.gz.sha256)
-gh release create "v$VER" "$OUT/thread-viz.tar.gz" "$OUT/thread-viz.tar.gz.sha256" \
+# update.py가 GitHub API 대신 이 파일로 최신 버전을 확인함 (API는 비로그인 시간당 60회 제한)
+python3 -c 'import json,sys; print(json.dumps({"version": int(sys.argv[1]), "notes": sys.argv[2]}, ensure_ascii=False))' "$VER" "${1:-thread-viz v$VER}" > "$OUT/latest.json"
+gh release create "v$VER" "$OUT/thread-viz.tar.gz" "$OUT/thread-viz.tar.gz.sha256" "$OUT/latest.json" \
     --repo "$REPO" --title "thread-viz v$VER" --notes "${1:-thread-viz v$VER}"
 echo "배포함: https://github.com/$REPO/releases/tag/v$VER"

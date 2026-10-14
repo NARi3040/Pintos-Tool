@@ -6,13 +6,14 @@
   python3 tools/thread-viz/update.py --auto     run.sh가 시작할 때 부름. 새 버전이 있으면 바로 적용(종료 코드 10).
                                                 최신이면 "최신 버전입니다!", 네트워크가 안 되면 실패했다고 알리고 끝남
 
-환경 변수: THREAD_VIZ_REPO (기본 NARi3040/Pintos-Tool), THREAD_VIZ_API (기본 https://api.github.com)
+환경 변수: THREAD_VIZ_REPO (기본 NARi3040/Pintos-Tool), THREAD_VIZ_BASE (기본 https://github.com/<repo>/releases/latest/download)
+버전은 릴리스 파일 latest.json으로 확인함 (GitHub API가 아니라 호출 횟수 제한이 없음)
 """
 import hashlib, json, os, sys, tarfile, tempfile, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.environ.get("THREAD_VIZ_REPO", "NARi3040/Pintos-Tool")
-API = os.environ.get("THREAD_VIZ_API", "https://api.github.com")
+BASE = os.environ.get("THREAD_VIZ_BASE", f"https://github.com/{REPO}/releases/latest/download")
 PREFIX = "tools/thread-viz/"
 KEEP = {"baseline.js"}  # 이미 있으면 덮어쓰지 않음 (BASELINE=1로 저장한 기준값 보존)
 
@@ -54,10 +55,8 @@ def local_version():
 
 
 def latest(timeout):
-    rel = json.loads(get(f"{API}/repos/{REPO}/releases/latest", timeout))
-    tag = rel["tag_name"]
-    assets = {a["name"]: a["browser_download_url"] for a in rel["assets"]}
-    return int(tag.lstrip("v")), assets, (rel.get("body") or "").strip()
+    info = json.loads(get(f"{BASE}/latest.json", timeout))
+    return int(info["version"]), (info.get("notes") or "").strip()
 
 
 def apply(data):
@@ -91,10 +90,10 @@ def main():
     auto = "--auto" in sys.argv
     cur = local_version()
     try:
-        ver, assets, body = latest(5 if auto or check else 15)
+        ver, body = latest(5 if auto or check else 15)
     except Exception as e:
         if auto:
-            print(f"[thread-viz] v{cur} - 업데이트 확인 실패 (오프라인?). 지금 버전으로 실행함")
+            print(f"[thread-viz] v{cur} - 업데이트 확인 실패 ({e}). 지금 버전으로 실행함")
         if check or auto:
             sys.exit(0)
         sys.exit(f"업데이트 서버에 연결 못 함: {e}")
@@ -105,13 +104,11 @@ def main():
     if check:
         print(f"[thread-viz] 새 버전 v{ver} 있음 (지금 v{cur}). 업데이트: python3 tools/thread-viz/update.py")
         return
-    if "thread-viz.tar.gz" not in assets or "thread-viz.tar.gz.sha256" not in assets:
-        sys.exit(f"v{ver} 릴리스에 thread-viz.tar.gz 또는 .sha256 이 없음")
     print(f"[thread-viz] 새 버전 v{ver} 발견 (지금 v{cur}). 업데이트함")
     if body:
         print("  변경 내용: " + body.splitlines()[0])
-    data = download(assets["thread-viz.tar.gz"], 120)
-    want = get(assets["thread-viz.tar.gz.sha256"], 15).decode().split()[0]
+    data = download(f"{BASE}/thread-viz.tar.gz", 120)
+    want = get(f"{BASE}/thread-viz.tar.gz.sha256", 15).decode().split()[0]
     if hashlib.sha256(data).hexdigest() != want:
         sys.exit("  sha256이 안 맞음. 받은 파일이 깨졌으니 적용 안 함")
     print("  sha256 확인 완료. 파일 교체 중")
