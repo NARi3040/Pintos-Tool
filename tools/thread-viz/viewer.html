@@ -27,18 +27,31 @@
 body { overflow-anchor: none; margin: 0; background: var(--bg); color: var(--text);
   font: 14px/1.45 system-ui, "Noto Sans KR", sans-serif; }
 code, .mono { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 12.5px; }
-header { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 16px;
+header { padding: 8px 16px; display: flex; flex-direction: column; gap: 6px;
   background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; }
-header h1 { font-size: 15px; margin: 0 8px 0 0; }
+.hrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.hrow .grow { flex: 1; }
+header h1 { font-size: 15px; margin: 0 6px 0 0; }
+#test { max-width: min(460px, 100%); }
 select, button { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
   border-radius: 6px; padding: 4px 9px; cursor: pointer; }
 button:hover { border-color: var(--accent); }
+button:disabled { opacity: .55; cursor: default; border-color: var(--line); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; min-width: 76px; }
 label.chk { color: var(--muted); font-size: 13px; display: flex; gap: 4px; align-items: center; }
-#slider { flex: 1 1 200px; min-width: 120px; }
-#pos { color: var(--muted); min-width: 90px; }
-main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px; padding: 12px 16px; }
+#slider { flex: 1 1 200px; min-width: 120px; accent-color: var(--accent); }
+#pos { color: var(--muted); min-width: 120px; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; padding: 12px 16px; align-items: start; }
 @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+.panel.now { border-left: 4px solid var(--accent); }
+.panel.now details { margin-top: 8px; }
+.pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+@media (max-width: 1300px) { .pair { grid-template-columns: 1fr; } }
+.tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line); margin: -4px 0 10px; }
+.tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--muted); padding: 6px 10px; }
+.tabs button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.tabs button.alert::after { content: " ●"; color: var(--dying); }
 .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 8px; }
 #desc { font-size: 15px; }
 #desc .kind { display: inline-block; padding: 1px 8px; border-radius: 4px; background: var(--accent); color: #fff; font-size: 12px; margin-right: 6px; }
@@ -65,7 +78,8 @@ th { color: var(--muted); font-weight: 500; }
 .st { font-weight: 600; font-size: 12px; }
 .st-RUNNING { color: var(--run); } .st-READY { color: var(--ready); } .st-BLOCKED { color: var(--blocked); }
 .st-SLEEP { color: var(--sleep); } .st-DYING { color: var(--dying); }
-#events { max-height: calc(100vh - 120px); overflow-y: auto; padding: 0; position: relative; }
+/* --hh = 헤더 높이 (JS가 채움). 이벤트 목록을 헤더 바로 아래에 고정 */
+#events { position: sticky; top: calc(var(--hh, 90px) + 12px); max-height: calc(100vh - var(--hh, 90px) - 24px); overflow-y: auto; padding: 0; }
 #events div { padding: 3px 10px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 12.5px; display: flex; gap: 6px; }
 #events div:hover { background: var(--bg); }
 #events div.cur { background: var(--hl); }
@@ -122,46 +136,58 @@ details summary { cursor: pointer; color: var(--muted); }
 </head>
 <body>
 <header>
-  <h1>Pintos 스레드 흐름</h1>
-  <select id="test"></select>
-  <button id="prev" title="이전 (←)">◀</button>
-  <button id="play" title="재생/정지 (space)">▶ 재생</button>
-  <button id="next" title="다음 (→)">▶</button>
-  <select id="speed"><option value="900">느리게</option><option value="450" selected>보통</option><option value="150">빠르게</option></select>
-  <input type="range" id="slider" min="0" value="0">
-  <span id="pos" class="mono"></span>
-  <span id="res" class="res none"></span>
-  <span id="avg"></span>
-  <button id="nextbad" title="다음 규칙 위반 이벤트로 (n)">⚠ 다음 이상</button>
-  <label class="chk"><input type="checkbox" id="f-sys" checked>커널 내부 락 숨김</label>
-  <label class="chk"><input type="checkbox" id="f-idle" checked>빈 타임슬라이스 yield 숨김</label>
+  <div class="hrow">
+    <h1>Pintos 스레드 흐름</h1>
+    <select id="test"></select>
+    <span id="res" class="res none"></span>
+    <span id="avg"></span>
+    <span class="grow"></span>
+    <label class="chk"><input type="checkbox" id="f-sys" checked>커널 내부 락 숨김</label>
+    <label class="chk"><input type="checkbox" id="f-idle" checked>빈 타임슬라이스 yield 숨김</label>
+  </div>
+  <div class="hrow">
+    <button id="prev" title="이전 (←)">◀</button>
+    <button id="play" class="primary" title="재생/정지 (space)">▶ 재생</button>
+    <button id="next" title="다음 (→)">▶</button>
+    <select id="speed"><option value="900">느리게</option><option value="450" selected>보통</option><option value="150">빠르게</option></select>
+    <input type="range" id="slider" min="0" value="0">
+    <span id="pos" class="mono"></span>
+    <button id="nextbad" title="다음 규칙 위반 이벤트로 (n)">⚠ 다음 이상</button>
+  </div>
 </header>
 <div id="prog"></div>
 <main>
   <div>
-    <div class="panel"><h2>이번 이벤트</h2><div id="desc"></div><div id="stack" class="mono"></div><div id="viol"></div></div>
-    <div class="panel"><details id="src-panel"><summary>소스 (call stack 항목 클릭하면 바뀜)</summary>
+    <div class="panel now"><h2>이번 이벤트</h2><div id="desc"></div><div id="stack" class="mono"></div><div id="viol"></div>
+      <details id="src-panel"><summary>소스 (call stack 항목 클릭하면 바뀜)</summary>
       <div id="src-title" class="mono" style="margin-top:8px"></div><div id="src" class="mono"></div></details></div>
     <div class="panel"><h2>이벤트 직후 상태</h2><div id="lanes"></div></div>
-    <div class="panel"><h2>동기화 객체 — lock / semaphore / condition 대기 리스트 (앞 → 뒤)</h2><div id="sync"></div></div>
-    <div class="panel" id="ml-panel" style="display:none"><div class="mlhead"><h2 style="margin:0">MLFQS — 가로축 = tick (클릭하면 이동)</h2>
-      <select id="ml-metric"><option value="pri">priority</option><option value="rcpu">recent_cpu</option><option value="nice">nice</option></select></div>
-      <div class="mlwrap" id="ml-a"><canvas id="ml-c"></canvas><div class="mlcur"></div></div>
-      <div class="note" style="margin-top:8px">load_avg</div>
-      <div class="mlwrap" id="ml-b"><canvas id="ml-l"></canvas><div class="mlcur"></div></div>
-      <div class="note" id="ml-note"></div></div>
-    <div class="panel"><h2>donation — 대기 체인 (wait_on_lock → holder) / donations 리스트</h2><div id="don"></div></div>
+    <div class="pair">
+      <div class="panel"><h2>동기화 객체 — lock / semaphore / condition 대기 리스트 (앞 → 뒤)</h2><div id="sync"></div></div>
+      <div class="panel"><h2>donation — 대기 체인 (wait_on_lock → holder) / donations 리스트</h2><div id="don"></div></div>
+    </div>
     <div class="panel"><h2>타임라인 (가로축 = 이벤트 순서, 클릭하면 이동)</h2>
       <div id="tl-wrap"><canvas id="tl"></canvas></div>
       <div class="legend"><span><i style="background:var(--run)"></i>RUNNING</span><span><i style="background:var(--ready)"></i>READY (ready_list)</span>
         <span><i style="background:var(--sleep)"></i>BLOCKED (sleep_list)</span><span><i style="background:var(--blocked)"></i>BLOCKED (그 외)</span></div>
     </div>
-    <div class="panel"><details id="met-panel" open><summary>효율 지표 (이 테스트 전체, run_test 이후 기준)</summary><div id="met"></div></details></div>
-    <div class="panel"><h2>스레드 표</h2><div id="table"></div></div>
-    <div class="panel"><details id="ck-panel"><summary>채점 결과 (.ck)</summary><pre id="ck" class="mono"></pre></details></div>
-    <div class="panel"><details><summary>테스트 출력 (pintos 콘솔)</summary><pre id="out" class="mono"></pre></details></div>
+    <div class="panel">
+      <div class="tabs" role="tablist">
+        <button data-t="met" role="tab">효율 지표</button><button data-t="table" role="tab">스레드 표</button><button data-t="ml" id="tab-ml" role="tab" hidden>MLFQS</button><button data-t="ck" id="tab-ck" role="tab">채점 결과 (.ck)</button><button data-t="out" role="tab">테스트 출력</button>
+      </div>
+      <div class="tp" id="tp-met"><div class="note" style="margin:0 0 4px">이 테스트 전체, run_test 이후 기준</div><div id="met"></div></div>
+      <div class="tp" id="tp-table" hidden><div id="table"></div></div>
+      <div class="tp" id="tp-ml" hidden><div class="mlhead"><h2 style="margin:0">MLFQS — 가로축 = tick (클릭하면 이동)</h2>
+        <select id="ml-metric"><option value="pri">priority</option><option value="rcpu">recent_cpu</option><option value="nice">nice</option></select></div>
+        <div class="mlwrap" id="ml-a"><canvas id="ml-c"></canvas><div class="mlcur"></div></div>
+        <div class="note" style="margin-top:8px">load_avg</div>
+        <div class="mlwrap" id="ml-b"><canvas id="ml-l"></canvas><div class="mlcur"></div></div>
+        <div class="note" id="ml-note"></div></div>
+      <div class="tp" id="tp-ck" hidden><pre id="ck" class="mono"></pre></div>
+      <div class="tp" id="tp-out" hidden><pre id="out" class="mono"></pre></div>
+    </div>
   </div>
-  <div class="panel" id="events"></div>
+  <aside class="panel" id="events"></aside>
 </main>
 <script src="data.js"></script>
 <script src="baseline.js"></script>
@@ -357,8 +383,10 @@ function expand(T) {
 
 let ml = null;
 function mlBuild() {
-  if (!T.mlfqs) { $("ml-panel").style.display = "none"; ml = null; return; }
-  $("ml-panel").style.display = "";
+  $("tab-ml").hidden = !T.mlfqs;
+  if (!T.mlfqs) { ml = null; if (!$("tp-ml").hidden) showTab("met"); return; }
+  // 숨은 탭은 폭이 0이라 그릴 수 없음. 탭을 열 때 showTab이 다시 부름
+  if ($("tp-ml").hidden) { ml = null; return; }
   const metric = $("ml-metric").value, E = T.events, start = Math.max(0, E.findIndex(e => e.kind === "run_test"));
   const t0 = E[start].snap.tick ?? 0, t1 = Math.max(t0 + 1, E[E.length - 1].snap.tick ?? 0);
   const series = {}, load = { load: [] };
@@ -799,7 +827,7 @@ function load(name) {
   const [cls, txt] = resultOf(T);
   $("res").className = "res " + cls; $("res").textContent = txt;
   $("ck").textContent = T.result ? T.result.detail : "채점 결과 없음 (run.sh로 다시 수집하면 생김)";
-  $("ck-panel").open = !!(T.result && !T.result.pass);
+  $("tab-ck").classList.toggle("alert", !!(T.result && !T.result.pass));
   const nb = T.events.filter(e => e.viol.length).length;
   $("nextbad").textContent = nb ? `⚠ 다음 이상 (${nb})` : "✓ 이상 없음";
   $("nextbad").disabled = !nb;
@@ -810,6 +838,16 @@ function load(name) {
   try { localStorage.setItem("pv-test", name); } catch (e) {}
   rebuild(false);
 }
+
+function showTab(k) {
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === k));
+  document.querySelectorAll(".tp").forEach(p => p.hidden = p.id !== "tp-" + k);
+  try { localStorage.setItem("pv-tab", k); } catch (e) {}
+  if (k === "ml" && T) { mlBuild(); render(); }
+}
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => showTab(b.dataset.t));
+new ResizeObserver(() => document.documentElement.style.setProperty("--hh", document.querySelector("header").offsetHeight + "px"))
+  .observe(document.querySelector("header"));
 
 function stop() { clearInterval(timer); timer = null; $("play").textContent = "▶ 재생"; }
 function play() {
@@ -881,6 +919,8 @@ if (!names.length) {
   const [hn, hi] = decodeURIComponent(location.hash.slice(1)).split("/");
   if (names.includes(hn)) $("test").value = hn;
   load($("test").value);
+  let tab = null; try { tab = localStorage.getItem("pv-tab"); } catch (e) {}
+  showTab(tab && !$("tab-" + tab)?.hidden ? tab : "met");
   if (hi && Number.isFinite(+hi)) { idx = +hi; render(); }
 }
 </script>
