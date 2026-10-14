@@ -37,10 +37,11 @@ WARN=()
 if [ "$(gcc -dumpversion 2>/dev/null | cut -d. -f1)" -ge 14 ] 2>/dev/null; then
     WARN=("WARNINGS=-Wall -W -Wstrict-prototypes -Wmissing-prototypes -Wsystem-headers -Wno-error=int-conversion -Wno-error=incompatible-pointer-types")
 fi
-# kernel.lds.s는 make 내장 규칙(cpp ... > $@)으로 만들어져서, 중간에 실패하거나 끊기면 빈 파일로 남고 이후 빌드가 계속 재사용함.
-# 그러면 링크에서 _start_bss 등이 undefined가 됨. 내용이 없으면 지워서 다시 만들게 함
-LDS="$BUILD/threads/kernel.lds.s"
-[ -f "$LDS" ] && ! grep -q SECTIONS "$LDS" && rm -f "$LDS"
+# kernel.lds.s는 make 내장 규칙(cpp threads/kernel.lds.S > threads/kernel.lds.s)으로 만들어짐.
+# Windows 폴더를 마운트한 컨테이너(대소문자 구분 없음)에서는 build/threads/kernel.lds.s가 있으면 make가 그걸 kernel.lds.S로 잡아서
+# 자기 자신을 읽으며 덮어써 빈 파일이 됨 (make -B마다 발생). 그러면 링크에서 _start_bss 등이 undefined가 되고 이후 make도 계속 재사용함.
+# 빌드 전에 항상 지우면 VPATH로 원본(../../threads/kernel.lds.S)을 찾아 제대로 만듦
+rm -f "$BUILD/threads/kernel.lds.s"
 # 빌드 출력(원래 있던 경고 포함)은 traces/build.log에 두고, 실패했을 때만 보여줌
 if ! make -s $MFLAGS -C "$PINTOS/threads" ${WARN[@]+"${WARN[@]}"} > "$HERE/traces/build.log" 2>&1; then
     grep -E "error|Error" "$HERE/traces/build.log" | head -20
