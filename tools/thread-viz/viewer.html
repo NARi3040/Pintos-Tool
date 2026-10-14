@@ -493,6 +493,11 @@ function check(T) {
         const exp = Math.max(t.base, ...t.dons.map(P).filter(p => p != null));
         if (t.pri !== exp)
           v.push(`priority 불일치: ${name(+k)} pri ${t.pri}, 기대값 max(base ${t.base}${t.dons.map(d => ", " + name(d) + " " + P(d)).join("")}) = ${exp}`);
+        // 위 검사는 dons를 그대로 믿어서, release 때 donations에서 안 빼면 기대값도 같이 높아져 못 잡음. 남은 donor가 정말 k의 락을 기다리는지 따로 봄
+        // 락 객체를 못 읽는 경우(테스트 함수가 끝나 스택의 락이 사라짐 등)는 holder를 믿을 수 없어서 뺌
+        const stale = t.dons.filter(d => th[d] && (th[d].lock == null || s.sync[th[d].lock] && s.sync[th[d].lock].holder !== +k));
+        if (stale.length)
+          v.push(`donation 미회수: ${name(+k)}의 donations에 ${stale.map(d => name(d)).join(", ")}가 남아 있는데 ${name(+k)}가 쥔 락을 기다리지 않음`);
       }
     }
     // 1. 스케줄러가 가장 높은 priority를 골랐는지 (thread_launch 진입 시점: 고른 스레드는 이미 ready에서 빠짐)
