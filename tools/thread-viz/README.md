@@ -229,5 +229,6 @@ pkill -f "http.server 8000"
 | `gdb 포트 1234를 다른 프로그램이 쓰는 중임` | 다른 `pintos --gdb`를 끄거나, 호스트/컨테이너 한쪽에서만 실행 |
 | `gdb 연결 실패` / 위쪽에 "수집 실패 N개" | 부하 등으로 gdb가 못 붙은 것. `run.sh`를 다시 실행하면 그 테스트만 다시 수집함 |
 | 맞는 코드인데 트레이스 화면의 tick이 조금 다름 (`REPLAY=0`) | gdb 부하 때문임. 채점은 따로 돌린 실행 기준이라 영향 없음. "테스트 출력"에서 두 출력 비교 |
+| 빌드 실패: ``undefined reference to `_end_bss'``, `relocation truncated to fit` | `build/threads/kernel.lds.s`가 빈 파일로 남은 것임 (예전 빌드가 중간에 실패하거나 끊김). `run.sh`는 자동으로 지우고 다시 만듦. `make`/`make check`를 직접 돌릴 땐 `rm pintos/threads/build/threads/kernel.lds.s` 후 다시 빌드 |
 | `.err`에 `rr`/`replay`/`blkreplay` 관련 QEMU 에러 | 이 QEMU가 기록/재생을 지원 안 함. `REPLAY=0`으로 실행 |
 | 트레이스를 걸면 가끔 PANIC (평소 `make check`는 PASS) | 타이밍이 바뀌어 숨어 있던 경쟁 조건이 드러난 것일 수 있음. PANIC 위치와 호출 스택 확인 |

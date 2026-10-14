@@ -33,9 +33,15 @@ WARN=()
 if [ "$(gcc -dumpversion 2>/dev/null | cut -d. -f1)" -ge 14 ] 2>/dev/null; then
     WARN=("WARNINGS=-Wall -W -Wstrict-prototypes -Wmissing-prototypes -Wsystem-headers -Wno-error=int-conversion -Wno-error=incompatible-pointer-types")
 fi
+# kernel.lds.s는 make 내장 규칙(cpp ... > $@)으로 만들어져서, 중간에 실패하거나 끊기면 빈 파일로 남고 이후 빌드가 계속 재사용함.
+# 그러면 링크에서 _start_bss 등이 undefined가 됨. 내용이 없으면 지워서 다시 만들게 함
+LDS="$BUILD/threads/kernel.lds.s"
+[ -f "$LDS" ] && ! grep -q SECTIONS "$LDS" && rm -f "$LDS"
 # 빌드 출력(원래 있던 경고 포함)은 traces/build.log에 두고, 실패했을 때만 보여줌
 if ! make -s $MFLAGS -C "$PINTOS/threads" ${WARN[@]+"${WARN[@]}"} > "$HERE/traces/build.log" 2>&1; then
     grep -E "error|Error" "$HERE/traces/build.log" | head -20
+    grep -q "undefined reference to \`_end_bss'" "$HERE/traces/build.log" \
+        && echo "링커 스크립트(build/threads/kernel.lds.s) 생성 실패. 'cd pintos/threads && make clean && make' 후 다시 실행할 것"
     echo "빌드 실패: 위 컴파일 에러를 먼저 고칠 것 (전체 로그: tools/thread-viz/traces/build.log)"; exit 1
 fi
 
