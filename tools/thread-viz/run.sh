@@ -240,10 +240,10 @@ while [ $next -lt ${#tests[@]} ] || [ ${#test_of[@]} -gt 0 ]; do
         progress true "$(running)" null
     done
     [ ${#test_of[@]} -eq 0 ] && break
-    fin=""; wait -n -p fin "${!test_of[@]}" 2>/dev/null   # Ctrl-C를 받으면 fin 없이 돌아옴
-    [ -n "$fin" ] && [ -n "${test_of[$fin]+x}" ] || continue
+    fin=""; wait -n -p fin "${!test_of[@]}" 2>/dev/null   # Ctrl-C를 받으면 bash가 fin을 unset한 채로 돌아옴 (set -u라 ${fin:-}로 읽음)
+    [ -n "${fin:-}" ] && [ -n "${test_of[$fin]+x}" ] || continue
     t=${test_of[$fin]}; free+=(${slot_of[$fin]}); unset "test_of[$fin]" "slot_of[$fin]"
-    sum="$HERE/traces/$t.summary"
+    sum="$OUTDIR/$t.summary"
     [ -f "$sum" ] || { echo "== $t: 중단됨"; continue; }
     res=$(sed -n 's/^RESULT //p' "$sum"); st=$(sed -n 's/^STATUS //p' "$sum")
     echo "== $t"
