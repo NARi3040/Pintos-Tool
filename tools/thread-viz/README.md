@@ -7,7 +7,7 @@ sleep_list, lock / semaphore / condition 대기 리스트, donation 흐름을 �
 ## 필요한 것
 
 - `qemu-system-x86_64`, `gdb`(Python 지원 빌드), `python3`, `perl`
-- 정글 Pintos Docker 이미지에는 다 들어 있음
+- 정글 Pintos Docker 이미지에는 다 들어 있음. `curl`은 없지만 처음 받을 때만 씀 (루트 README의 설치 절 참고). 업데이트는 `python3`로 받음
 - KAIST Pintos 원본 함수 이름이 그대로 있어야 함 (`init_thread`, `thread_launch`, `thread_block`, `power_off` 등)
 
 ## 설치
@@ -19,9 +19,11 @@ sleep_list, lock / semaphore / condition 대기 리스트, donation 흐름을 �
 ├── pintos/
 └── tools/thread-viz/
     ├── run.sh
+    ├── server.py                (뷰어 서버 + 런처 API)
+    ├── index.html               (런처: 테스트 골라 실행)
     ├── bin/qemu-system-x86_64   (QEMU 래퍼: 기록/재생, gdb 포트)
-    ├── trace.py
-    ├── viewer.html
+    ├── trace.py, viewer.html    (Project 1 트레이서, 뷰어)
+    ├── uprog.py, uprog.html     (Project 2 트레이서, 뷰어)
     └── README.md
 ```
 
@@ -49,12 +51,26 @@ python3 tools/thread-viz/update.py --check   # 확인만
 repo 루트에서 실행함.
 
 ```bash
-tools/thread-viz/run.sh                          # alarm-*, priority-*, bench-* 전부 (첫 실행 2~3분)
+tools/thread-viz/run.sh                          # 런처 페이지를 엶. 거기서 Project 1/2와 테스트를 골라 실행
+tools/thread-viz/run.sh threads                  # alarm-*, priority-*, bench-* 전부 (첫 실행 2~3분)
 tools/thread-viz/run.sh priority-donate-nest     # 원하는 테스트만
 tools/thread-viz/run.sh priority-sema priority-condvar
 ```
 
-실행하면 처음에 접속 주소가 나옴. 수집 중에도 그 주소로 들어가면 진행도가 실시간으로 보이고, 끝나면 자동으로 새로고침됨.
+### 런처 (인자 없이 실행)
+
+인자 없이 실행하면 서버(`server.py`)만 띄우고 `http://localhost:8000/index.html`을 브라우저로 엶. 열 수 없는 환경이면 주소만 출력함 (`NO_OPEN=1`이면 안 엶).
+페이지에서 Project 1 / Project 2를 고르고 테스트를 체크해서 실행함. 테스트 옆에는 지난 결과(PASS/FAIL)가 붙음.
+
+- 실행 중에는 진행도와 `run.sh` 출력이 보이고, "중지"는 터미널의 Ctrl-C와 같음 (그때까지 저장)
+- 실행이 끝나면 "결과 보기"로 뷰어로 감
+- 이미 실행 중이면(이 페이지에서 시작한 것이든 터미널에서 돌린 것이든) 새로 시작하지 않음
+- 실행 요청은 이 페이지에서만 받음. 다른 사이트의 페이지가 localhost로 요청을 보내 실행시키지 못하게 막아 둠
+- 예전 버전이 띄운 정적 서버(`python3 -m http.server`)가 같은 포트에 있으면 끄고 새 서버로 바꿈
+
+### 터미널에서 바로 실행
+
+인자를 주면 런처 없이 바로 돌림. 실행하면 처음에 접속 주소가 나옴. 수집 중에도 그 주소로 들어가면 진행도가 실시간으로 보이고, 끝나면 자동으로 새로고침됨.
 
 ```
 진행 상황은 여기서 실시간으로 볼 수 있습니다: http://localhost:8000/viewer.html
@@ -136,7 +152,7 @@ python3 tools/thread-viz/bench.py remove     # 파일과 등록을 되돌리고 
 
 ```bash
 tools/thread-viz/run.sh mlfqs-load-1 mlfqs-fair-2   # 원하는 것만
-MLFQS=1 tools/thread-viz/run.sh                     # alarm/priority + mlfqs 전부 (수십 분)
+MLFQS=1 tools/thread-viz/run.sh threads             # alarm/priority + mlfqs 전부 (수십 분)
 ```
 
 MLFQS 모드로 돈 테스트는 화면에 MLFQS 패널이 생김: 스레드별 priority / recent_cpu / nice 그래프와 load_avg 그래프 (가로축 tick). 공식이 틀리면 해당 이벤트에 MLFQS 위반이 표시됨 (테스트가 PASS여도 잡히는 경우가 있음).
@@ -146,7 +162,8 @@ MLFQS 모드로 돈 테스트는 화면에 MLFQS 패널이 생김: 스레드별 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
 | `VIEW_PORT` | `8000` | 뷰어 서버 포트 |
-| `TRACE_TIMEOUT` | `60` (mlfqs는 `900`) | 테스트 하나가 이 시간(초) 안에 안 끝나면 멈춘 것으로 보고 그때까지 저장함 |
+| `NO_OPEN` | `0` | `1`이면 인자 없이 실행할 때 브라우저를 열지 않고 주소만 출력 |
+| `TRACE_TIMEOUT` | `60` (mlfqs는 `900`, Project 2는 Make.tests 제한 시간의 2배, 최소 `120`) | 테스트 하나가 이 시간(초) 안에 안 끝나면 멈춘 것으로 보고 그때까지 저장함 |
 | `MLFQS` | `0` | `1`이면 mlfqs 테스트도 기본 목록과 자동 수집에 포함 |
 | `REBUILD` | `1` | `1`이면 측정 전에 커널 전체를 다시 빌드(`make -B`). `0`이면 바뀐 파일만 빌드 |
 | `AUTO` | `1` | `0`이면 트레이스가 없는 테스트를 자동으로 같이 수집하지 않고 지정한 테스트만 돌림 |
@@ -154,11 +171,12 @@ MLFQS 모드로 돈 테스트는 화면에 MLFQS 패널이 생김: 스레드별 
 | `REPLAY` | `1` | `1`이면 기록/재생 (위 설명). `0`이면 예전 방식 |
 | `JOBS` | 코어 수 / 2 | 동시에 돌릴 테스트 수 (`REPLAY=1`일 때만. `0`이면 1) |
 | `GDB_BASE` | `1234` | gdb 포트 시작 번호. 동시 실행 슬롯마다 `GDB_BASE`, `+1`, ... 을 씀 |
+| `TRACE_MAX_EVENTS` | `30000` | Project 2만. 이벤트가 이만큼 쌓이면 기록을 멈추고 커널은 끝까지 돌림 (누수 검사는 안 함) |
 | `BASELINE` | `0` | `1`이면 이번 효율 측정값을 `baseline.js`에 기준으로 저장 |
 | `GRADE` | `1` | `REPLAY=0`일 때만 씀. `1`이면 채점용으로 트레이스 없는 실행을 따로 돌림(동시 실행). `seq`면 트레이스 수집 뒤에 따로 돌림(코어가 적어 채점 타이밍이 흔들릴 때). `0`이면 생략하고 트레이스 실행 출력으로 채점 (빠르지만 타이밍 테스트가 틀리게 FAIL 날 수 있음) |
 
 ```bash
-VIEW_PORT=9000 TRACE_TIMEOUT=30 tools/thread-viz/run.sh
+VIEW_PORT=9000 TRACE_TIMEOUT=30 tools/thread-viz/run.sh threads
 ```
 
 ### 중단하기
@@ -169,7 +187,7 @@ QEMU, gdb, 채점 실행도 같이 정리됨.
 ### 서버 끄기
 
 ```bash
-pkill -f "http.server 8000"
+pkill -f "server.py 8000"
 ```
 
 ### 결과 파일 (`traces/`)
@@ -203,6 +221,57 @@ pkill -f "http.server 8000"
 - donation: 대기 체인(`high → L2 → medium → L1 → main`)과 스레드별 donations 리스트
 - 효율 지표: 스위치 / yield 횟수, 스레드별 실행·대기 tick, 선점 지연, 재미용 점수, 효율 점수와 함수별 평균 명령어 수 (기준 → 지금)
 - 채점 결과(.ck): FAIL이면 자동으로 펼쳐짐
+
+## Project 2 (User Programs)
+
+`userprog` 테스트도 gdb로 추적함 (커널 코드 수정 없음). 결과는 `uprog.html`에서 봄.
+
+기본은 `REPLAY=0`임. QEMU 기록 모드가 디스크 I/O에서 극단적으로 느려서임 (`syn-read`: 일반 5초, 기록 620초). 그래서 채점 실행과 트레이스 실행을 따로, 테스트끼리는 동시에 돌림. 두 실행의 출력이 다르면 뷰어의 결과 옆에 "트레이스 실행은 출력이 다름"이 붙음. `REPLAY=1`로 기록/재생을 쓸 수도 있지만 파일 시스템 테스트는 수십 분 걸림.
+
+```bash
+tools/thread-viz/run.sh userprog                  # Project 2 테스트 전부 (tests/userprog, tests/filesys/base)
+tools/thread-viz/run.sh args-multiple fork-once   # 원하는 테스트만. 이름이 Project 2 테스트면 자동으로 이 모드
+```
+
+- `pintos/userprog/build`에서 돌림. 실행 명령(인자, `-p`로 넣는 파일, 제한 시간)은 `make check`가 쓰는 것을 make에서 그대로 받아옴
+- Project 1 테스트와 한 번에 섞어 돌릴 수 없음
+- `multi-oom`은 프로세스를 수천 개 만들어 기본 목록에서 뺌. 이름을 직접 주면 돌리지만 앞부분 `TRACE_MAX_EVENTS`개 이벤트만 기록함
+- 결과 파일은 `utraces/`, `udata.js`. 형식은 `traces/`와 같음
+
+### 기록하는 것
+
+훅은 학생이 고치지 않는 원본 코드에만 검. fd 테이블이나 자식 리스트를 어떻게 만들었는지와 상관없이 동작함.
+
+| 이벤트 | 훅 | 내용 |
+|---|---|---|
+| 시스템 콜 | `syscall_handler` 진입, `syscall_entry`의 복귀 지점 | 번호, 인자(문자열 인자는 내용, `write`는 버퍼 앞부분), 잘못된 포인터 여부, 반환값 |
+| 유저 진입 | `do_iret` (유저 코드 세그먼트일 때만) | 레지스터와 rsp부터 `USER_STACK`까지의 스택 바이트 |
+| 프로세스 | `init_thread`, `process_exec`, `process_wait`, `thread_exit` | 부모-자식 관계, exec 명령줄 |
+| fault | `page_fault`, `kill` | 주소(cr2), rip, 유저/커널, 예외 종류. 유저 주소는 프로그램 ELF로 함수와 소스 줄을 찾음 |
+| 콘솔 출력 | `putchar_have_lock` | 어느 프로세스가 어떤 줄을 찍었는지 |
+| 페이지/파일 | `palloc_get_multiple`/`palloc_free_multiple`, `file_open`/`file_duplicate`/`file_reopen`/`file_close` | 누수 검사용. 이벤트로는 안 보이고 개수만 기록 |
+
+### 화면 (`uprog.html`)
+
+- 프로세스 트리: 이벤트 직후 각 프로세스의 상태와, 진행 중인 시스템 콜(예: `wait(5)` 대기 중), 종료 코드
+- 타임라인: 프로세스별 RUNNING/READY/BLOCKED, 시스템 콜, fork(세로선), 종료(X), fault. 아래 그래프는 테스트 시작 뒤 할당한 페이지 수와 열린 파일 수
+- 유저 스택 탭: `process_exec` 뒤 처음 유저로 들어갈 때의 스택을 8바이트 칸 단위로 보여주고 각 칸에 의미를 붙임 (문자열, 패딩, `argv[i]`, `argv[argc]`, 가짜 반환 주소)
+- fd 테이블 탭: 시스템 콜 반환값으로 재구성한 프로세스별 fd 표 (open → 추가, close → 삭제, fork → 복사)
+- page fault / 예외 탭, 누수 검사 탭, 채점 결과, 테스트 출력
+
+### 자동 검사 (⚠)
+
+| 검사 | 기준 |
+|---|---|
+| 인자 전달 | `rdi` = argc, `rsi`가 스택 안의 argv 배열, `argv[i]`가 명령줄 단어와 같음, `argv[argc]` = NULL, rsp 8바이트 정렬. `rsi != rsp + 8`이나 가짜 반환 주소가 0이 아닌 것은 참고로만 표시 |
+| fork | 자식이 유저로 돌아갈 때 rax = 0, rip/rsp가 부모가 fork를 부른 위치와 같음, 부모가 받은 값 = 자식 tid |
+| wait | 반환값 = 자식의 exit 코드 (커널이 죽였으면 -1). 자식이 아니거나 이미 wait한 pid면 -1 |
+| 잘못된 포인터 | 포인터 인자가 매핑 안 됐거나 커널 영역인데 시스템 콜이 정상 반환하면 오류. 커널 모드에서 유저 주소 fault는 참고로 표시 |
+| 종료 메시지 | 유저 프로세스가 끝날 때 `이름: exit(코드)`가 찍혔고 코드가 맞는지 |
+| fault | 유저 코드가 잘못된 주소를 건드렸으면 그 프로세스가 끝나야 함. 커널 코드 fault는 오류 |
+| 누수 | `power_off` 때 테스트 시작 후 할당한 페이지가 남았거나 연 파일이 안 닫혔으면 오류. 이미 끝난 스레드의 `struct thread` 페이지는 스케줄러가 나중에 지우므로 제외 |
+
+검사는 힌트임. 판정은 `make check` 결과를 따를 것.
 
 ## 주의사항
 

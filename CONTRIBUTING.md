@@ -78,10 +78,12 @@ main ←─ PR (리뷰 1명) ←─ feat/bench-scale
 
 1. 배포할 변경이 모두 `main`에 머지된 상태에서 시작함.
 2. `tools/thread-viz/VERSION`의 정수를 1 올리고 `chore: thread-viz v<N>`으로 커밋 (PR 경유).
-3. 최신 `main`에서 태그를 만들어 push함. GitHub Actions(`.github/workflows/release.yml`)가 태그 커밋을 checkout해서 tarball, sha256, `latest.json`을 올림. 태그 메시지가 릴리스 노트가 됨.
+3. 최신 `main`에서 태그를 만들어 push함. GitHub Actions(`.github/workflows/release.yml`)가 태그 커밋을 checkout해서 tarball, sha256, `latest.json`을 올림. 태그 메시지(제목 + 본문)가 릴리스 노트가 됨.
+   릴리스 노트는 `CHANGELOG.md`에 버전 절(`## v<N>`)로 먼저 써서 PR에 넣고, 그 절 내용을 태그 메시지로 씀. 첫 줄은 구버전 `update.py`가 업데이트할 때 보여주는 한 줄이므로 사용자가 꼭 알아야 할 변화를 담을 것.
    ```bash
    git switch main && git pull
-   git tag -a v<N> -m "변경 내용 한 줄" && git push origin v<N>
+   awk '/^## v<N>$/{f=1; next} /^## v/{f=0} f' CHANGELOG.md | sed '/./,$!d' > /tmp/notes.txt   # 그 버전 절만 꺼냄
+   git tag -a v<N> -F /tmp/notes.txt && git push origin v<N>
    ```
    태그와 `VERSION`이 다르면 Actions가 실패하고 릴리스는 안 만들어짐. 로컬에서 `tools/release-thread-viz.sh`를 직접 돌리지 말 것 (커밋 안 된 로컬 파일이 배포될 수 있음).
 4. Actions 탭에서 성공했는지 보고, 다른 Pintos 저장소에서 설치 명령(README의 `curl ... | tar`)과 자동 업데이트를 한 번씩 확인함.
