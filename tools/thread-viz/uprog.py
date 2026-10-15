@@ -24,7 +24,9 @@ def u64(addr):
 def i32(addr):
     return struct.unpack("<i", bytes(inf.read_memory(addr, 4)))[0]
 
-T_TID, T_STATUS, T_NAME = (off("((struct thread *)0)->" + f) for f in ("tid", "status", "name"))
+T_TID, T_STATUS, T_NAME, T_MAGIC = (off("((struct thread *)0)->" + f) for f in ("tid", "status", "name", "magic"))
+T_TF = off("((struct thread *)0)->tf")
+THREAD_MAGIC = 0xcd6abf4b
 F = {r: off("((struct intr_frame *)0)->R." + r) for r in ("rax", "rdi", "rsi", "rdx", "r10", "r8", "r9")}
 F.update({r: off("((struct intr_frame *)0)->" + r) for r in ("rip", "rsp", "cs", "error_code")})
 STATUS = ["RUNNING", "READY", "BLOCKED", "DYING"]
@@ -112,6 +114,10 @@ files = {}   # struct file 주소 -> {name, by, how, stack, locs, ev}
 pending_name = {}   # 스레드 -> filesys_open에 넘긴 이름 (file_open 복귀 때 붙임)
 pending_dup = {}    # 스레드 -> file_duplicate 원본 파일 주소
 pending_sys = {}    # 스레드 -> 진행 중인 시스템 콜 이벤트 번호
+closed = set()      # file_close한 struct file 주소 (다시 file_close하면 이중 해제)
+dupsrc = {}         # 스레드 -> [원본, 복제본] struct file 주소 쌍 (file_duplicate/file_reopen. fork 자식의 fd 복제 확인용)
+last_open = {}      # 스레드 -> 진행 중인 시스템 콜 안에서 마지막으로 file_open한 struct file 주소
+smashed = set()     # magic이 깨진 걸 이미 기록한 스레드
 last_st = {}
 
 def counts():
@@ -233,6 +239,7 @@ def on_syscall():
                 **({"buf": buf} if buf is not None else {}), rip=r["rip"], rsp=r["rsp"])
     if events[ev]["by"] is not None:
         pending_sys[events[ev]["by"]] = ev
+        last_open.pop(events[ev]["by"], None)
 
 def on_sysret():
     """syscall_entry에서 syscall_handler가 돌아온 직후. rsp가 intr_frame을 가리킴"""
@@ -244,7 +251,13 @@ def on_sysret():
     ret = struct.unpack("<i", struct.pack("<I", rax & 0xffffffff))[0]
     events[ev]["ret"] = ret
     events[ev]["ret_raw"] = rax
+    if events[ev]["name"] == "open" and i in last_open:   # 유저가 받은 fd가 가리키는 struct file
+        events[ev]["fp"] = hex(last_open.pop(i))
     record("sysret", stack=False, call=ev, ret=ret)
+    # 커널 스택(같은 4KB 페이지의 위쪽)이 넘치면 페이지 아래쪽 struct thread의 magic부터 덮임
+    if i not in smashed and u64(cur_addr() + T_MAGIC) & 0xffffffff != THREAD_MAGIC:
+        smashed.add(i)
+        record("smash", stack=False, sys=events[ev]["name"])
 
 def on_do_iret():
     f = arg(0)
@@ -261,7 +274,7 @@ def on_do_iret():
     ev = pending_sys.pop(i, None)   # exec이 성공하면 시스템 콜은 돌아오지 않고 여기로 옴
     if ev is not None:
         events[ev]["ret"] = None
-    record("uentry", via=via, regs=r, stack_hex=stack, prog=prog_of(i))
+    record("uentry", via=via, regs=r, stack_hex=stack, prog=prog_of(i), dupsrc=dupsrc.get(i, []))
 
 def on_page_fault():
     f = arg(0)
@@ -345,9 +358,14 @@ def file_ret(how):
         fp = int(gdb.parse_and_eval("$rax"))
         k = cur_addr()
         name = pending_name.pop(k, None) if how == "open" else None
-        src = pending_dup.pop(k, None) if how == "dup" else None
+        src = pending_dup.pop(k, None) if how != "open" else None
         if not fp:
             return
+        closed.discard(fp)   # 해제된 주소를 malloc이 다시 줬을 수 있음
+        if how == "open":
+            last_open[cur()] = fp
+        elif src is not None:
+            dupsrc.setdefault(cur(), []).append([hex(src), hex(fp)])
         if src is not None and src in files:
             name = files[src]["name"]
         names, locs = caller(skip=1, n=4)
@@ -356,7 +374,82 @@ def file_ret(how):
     return f
 
 def on_file_close():
-    files.pop(arg(0), None)
+    fp = arg(0)
+    if not fp:
+        return
+    if files.pop(fp, None) is not None:
+        closed.add(fp)
+    elif fp in closed:
+        names, locs = caller(skip=1, n=4)
+        record("dclose", stack=False, fp=hex(fp), stack2=names, locs2=locs)
+
+# ---- 시간 초과 때: 멈춰 있는 스레드가 어디서 무엇을 기다리는지 ----
+def scope_off(fn, var):
+    """-O0 빌드에서 fn의 인자 var가 놓인 rbp 기준 오프셋. 못 구하면 None"""
+    try:
+        out = gdb.execute("info scope " + fn, to_string=True)
+    except gdb.error:
+        return None
+    for part in out.split("Symbol ")[1:]:
+        if not part.startswith(var + " is "):
+            continue
+        m = re.search(r"\$rbp offset (-?\d+)\+(-?\d+)", part)
+        if m:
+            return int(m.group(1)) + int(m.group(2))
+        m = re.search(r"DW_OP_fbreg (-?\d+)", part)   # 프레임 기준(CFA) = rbp + 16 (frame pointer를 쓰는 빌드)
+        if m:
+            return 16 + int(m.group(1))
+    return None
+
+def fn_at(pc):
+    try:
+        b = gdb.block_for_pc(pc)
+        while b and not b.function:
+            b = b.superblock
+        name = b.function.name if b else None
+    except RuntimeError:
+        name = None
+    sal = gdb.find_pc_line(pc)
+    loc = None
+    if sal.symtab and sal.line:
+        path = os.path.relpath(sal.symtab.fullname(), ROOT)
+        if not path.startswith(".."):
+            sources.add(path)
+            loc = "%s:%d" % (path, sal.line)
+    return name or "??", loc
+
+def stuck():
+    """살아 있는 스레드마다 호출 경로(저장된 tf의 rbp 체인)와, lock_acquire에서 기다리면 그 lock과 주인"""
+    lock_off = scope_off("lock_acquire", "lock")
+    holder_off = off("((struct lock *)0)->holder")
+    out = []
+    here = cur_addr()
+    for addr, i in threads.items():
+        if i in dead or info[i]["name"] == "idle":
+            continue
+        try:
+            if addr == here:
+                f = gdb.newest_frame()
+                pc, rbp = f.pc(), int(gdb.parse_and_eval("$rbp"))
+            else:
+                pc, rbp = u64(addr + T_TF + F["rip"]), u64(addr + T_TF + off("((struct intr_frame *)0)->R.rbp"))
+            names, locs, lock = [], [], None
+            while len(names) < 12:
+                n, l = fn_at(pc if not names else pc - 1)   # 복귀 주소는 call 다음 명령어라 한 칸 앞으로
+                names.append(n)
+                locs.append(l)
+                if n == "lock_acquire" and lock is None and lock_off is not None:
+                    la = u64(rbp + lock_off)
+                    h = u64(la + holder_off)
+                    lock = {"addr": hex(la), "holder": threads.get(h)}
+                if not (addr < rbp < addr + 0x1000):
+                    break
+                pc, rbp = u64(rbp + 8), u64(rbp)
+            out.append({"id": i, "status": STATUS[i32(addr + T_STATUS)] if 0 <= i32(addr + T_STATUS) < 4 else "?",
+                        "stack": names, "locs": locs, **({"lock": lock} if lock else {})})
+        except (gdb.error, gdb.MemoryError):
+            continue
+    return out
 
 def ret_addr(fn):
     """복귀 직전 명령어(leave 또는 pop %rbp) 주소. trace.py와 같은 이유로 ret 자체에는 안 검"""
@@ -481,7 +574,12 @@ def finish():
                 break
             try:
                 if events[-1]["kind"] != status:
-                    record(status, secs=TIMEOUT)
+                    try:
+                        st = stuck()
+                    except Exception as ex:
+                        gdb.write("trace warning: 멈춘 스레드 분석 실패 (%r)\n" % ex)
+                        st = []
+                    record(status, secs=TIMEOUT, stuck=st)
                 break
             except KeyboardInterrupt:
                 continue
@@ -553,7 +651,7 @@ specs = [("init_thread", on_init_thread), ("thread_exit", on_thread_exit), ("run
          ("syscall_handler", on_syscall), ("do_iret", on_do_iret), ("page_fault", on_page_fault), ("kill", on_kill),
          ("putchar_have_lock", on_putchar), ("debug_panic", on_panic), ("power_off", on_power_off),
          ("palloc_get_multiple", on_palloc_in), ("palloc_free_multiple", on_pfree),
-         ("filesys_open", on_filesys_open), ("file_duplicate", on_file_dup_in), ("file_close", on_file_close)]
+         ("filesys_open", on_filesys_open), ("file_duplicate", on_file_dup_in), ("file_reopen", on_file_dup_in), ("file_close", on_file_close)]
 try:
     a = sysret_addr()
     if a:

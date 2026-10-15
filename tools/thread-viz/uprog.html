@@ -268,16 +268,53 @@ function prepare(T) {
   const E = T.events, add = (ev, lvl, msg) => ev.viol.push({ lvl, msg });
   const tidOf = i => T.threads[i] && T.threads[i].tid;
   const statusOf = j => j in exitCode ? exitCode[j] : -1;   // exit 시스템 콜 없이 죽었으면(fault 등) -1
+  // 유저가 받은 fd로 다시 만든 프로세스별 fd 표 (stateAt과 같은 규칙). 커널 안의 실제 표는 안 읽음
+  const fdt = {}, pendS = {}, filesTracked = E.some(e => e.cnt && e.cnt[2] > 0), usedDup2 = E.some(e => e.kind === "sys" && e.name === "dup2");
   E.forEach((ev, i) => {
     const by = ev.by;
+    if (ev.kind === "create") { const ps = pendS[by]; fdt[ev.target] = ps != null && E[ps].name === "fork" ? { ...(fdt[by] || {}) } : {}; }
+    if (ev.kind === "sys") pendS[by] = i;
     switch (ev.kind) {
-      case "panic": add(ev, "err", `Kernel PANIC: ${esc(ev.msg)} (${esc(ev.file)}:${ev.line})`); break;
-      case "timeout": add(ev, "err", `${ev.secs}초 안에 안 끝남. 아래 프로세스 트리에서 BLOCKED인 프로세스와 진행 중인 시스템 콜 확인`); break;
-      case "aborted": add(ev, "err", "power_off 전에 중단됨"); break;
+      case "panic": {
+        add(ev, "err", `Kernel PANIC: ${esc(ev.msg)} (${esc(ev.file)}:${ev.line})`);
+        const hint = PANIC_HINTS.find(([k]) => (ev.msg || "").includes(k));
+        if (hint) add(ev, "warn", hint[1]);
+        break;
+      }
+      case "timeout": case "aborted": {
+        add(ev, "err", ev.kind === "timeout" ? `${ev.secs}초 안에 안 끝남. 아래 "멈춘 스레드"에서 각 스레드가 어디서 기다리는지 확인` : "power_off 전에 중단됨");
+        const S = ev.stuck || [], waits = {};
+        for (const t of S) if (t.lock) waits[t.id] = t.lock.holder;
+        for (const t of S) {
+          if (!t.lock) continue;
+          const h = t.lock.holder;
+          if (h == null) continue;
+          if (exited[h] != null) { add(ev, "err", `${tname(t.id)}가 lock ${t.lock.addr}을 기다리는데, 주인 ${tname(h)}는 이미 끝남. lock을 놓지 않고 종료함 (exit/오류 경로에서 lock_release 빠짐)`); continue; }
+          // 기다림을 따라가서 자기에게 돌아오면 데드락
+          const path = [t.id];
+          for (let x = h; x != null && path.length < 20; x = waits[x]) {
+            if (x === t.id) { if (Math.min(...path) === t.id) add(ev, "err", `데드락: ${path.map(j => tname(j)).join(" → ")} → ${tname(t.id)} (각자 상대가 쥔 lock을 기다림)`); break; }
+            if (path.includes(x)) break;
+            path.push(x);
+          }
+          if (h === t.id) add(ev, "err", `${tname(t.id)}가 자기가 쥔 lock ${t.lock.addr}을 다시 acquire하려고 멈춤`);
+        }
+        break;
+      }
+      case "smash": add(ev, "err", `커널 스택 넘침: ${esc(ev.sys)} 처리 중 스레드 페이지 아래쪽 struct thread가 덮임 (magic 깨짐). 커널 함수의 큰 지역 배열(예: char buf[4096])은 palloc/malloc으로 바꿀 것`); break;
+      case "dclose": add(ev, "err", `같은 파일(struct file ${ev.fp})을 두 번 file_close함. 이미 해제된 메모리라 나중에 엉뚱한 곳이 망가질 수 있음. close 뒤 fd 표에서 지웠는지, exit 때 다시 닫지 않는지 확인`); break;
       case "uentry":
         if (ev.via === "process_exec") ev.args_check = argCheck(ev, ev.cmd);
         if (ev.args_check) for (const c of ev.args_check.out) if (c.lvl !== "ok") add(ev, c.lvl, "인자 전달: " + c.msg);
         if (ev.via === "__do_fork") {
+          // 부모 fd가 가리키던 struct file을 자식이 file_duplicate/file_reopen했는지
+          const pairs = ev.dupsrc || [], tb = fdt[by] || {}, miss = [];
+          for (const [k, v] of Object.entries(tb)) {
+            if (+k < 2 || !v.fp || !ev.dupsrc) continue;
+            const p = pairs.find(x => x[0] === v.fp);
+            if (p) tb[k] = { fp: p[1] }; else miss.push(k);   // 자식 표는 이제 복제본을 가리킴 (손자 fork 검사용)
+          }
+          if (miss.length) add(ev, "warn", `부모의 fd ${miss.join(", ")}를 fork 자식에서 file_duplicate하지 않음. 같은 struct file을 공유하면 한쪽의 close/seek이 다른 쪽에 영향을 줌`);
           if (ev.regs.rax !== 0) add(ev, "err", `fork 자식의 rax = ${ev.regs.rax}. 자식 쪽 fork() 반환값은 0이어야 함`);
           const par = T.threads[by] && T.threads[by].parent;
           const call = E.slice(0, i).reverse().find(e => e.kind === "sys" && e.by === par && e.name === "fork");
@@ -302,6 +339,13 @@ function prepare(T) {
           if (ev.ret !== want) add(ev, "err", `wait(${t})가 ${ev.ret}를 반환함. 기대값 ${want} (${why})`);
         }
         if (call.name === "open" && (ev.ret === 0 || ev.ret === 1)) add(ev, "err", `open이 fd ${ev.ret}를 반환함. 0, 1은 표준 입출력 자리임`);
+        // 아래는 반환값으로 판단하는 검사. 잘못된 포인터로 이미 오류를 낸 호출은 건너뜀
+        if (!(call.bad && call.bad.length)) fdCheck(ev, call, fdt[by] || (fdt[by] = {}), add,
+          filesTracked && E.slice(ev.call + 1, i).every(e => e.by === by), usedDup2);
+        const f = fdt[by] || (fdt[by] = {});
+        if (call.name === "open" && ev.ret >= 0) f[ev.ret] = { fp: call.fp };
+        if (call.name === "close") delete f[call.args[0]];
+        if (call.name === "dup2" && ev.ret >= 0 && f[call.args[0]]) f[call.args[1]] = true;
         break;
       }
       case "fault":
@@ -324,10 +368,11 @@ function prepare(T) {
         if (E.some(e => e.kind === "sys" && e.name === "halt")) break;
         // exec까지 갔는데 안 끝난 프로세스가 있으면 그게 먼저임. 그 프로세스가 쥔 페이지/파일은 당연히 누수로 잡히므로 누수 검사는 생략
         const alive = [...new Set([...Object.keys(lastExec), ...Object.keys(T.uentered)])].filter(j => exited[j] == null);
-        if (alive.length) {
+        if (alive.length && !E.some(e => e.kind === "panic")) {   // panic이면 그게 원인이므로 따로 안 셈
           add(ev, "err", `프로세스 ${alive.map(j => tname(+j)).join(", ")}가 끝나기 전에 커널이 꺼짐. process_wait가 자식이 끝날 때까지 기다리지 않고 반환했을 수 있음 (과제 시작 전 상태면 정상)`);
           break;
         }
+        if (alive.length) break;
         const L = T.leaks;
         if (L) {
           const pg = L.pages.filter(p => !p.pending), np = pg.reduce((a, p) => a + p.n, 0);
@@ -339,6 +384,49 @@ function prepare(T) {
     }
   });
   T.nbad = E.filter(e => e.viol.some(v => v.lvl === "err")).length;
+}
+
+// 커널 panic 메시지(ASSERT 식) -> 흔한 원인
+const PANIC_HINTS = [
+  ["is_thread (t)", "struct thread가 깨짐. 커널 스택 넘침(큰 지역 배열, 깊은 재귀)이거나 이미 끝난 스레드의 struct thread를 건드림"],
+  ["bitmap_all", "palloc_free: 이미 해제한 페이지를 또 해제했거나 palloc으로 받지 않은 주소를 해제함"],
+  ["!intr_context ()", "인터럽트 처리 중(타이머/page fault 핸들러 안 등)에 잠들 수 있는 함수(lock_acquire, sema_down 등)를 부름"],
+  ["!lock_held_by_current_thread", "이미 쥔 lock을 또 acquire함 (같은 lock을 두 번 잡는 경로)"],
+  ["lock_held_by_current_thread", "자기가 안 쥔 lock을 release함 (release 두 번, 또는 다른 스레드가 잡은 lock)"],
+  ["intr_get_level () == INTR_OFF", "인터럽트를 끄고 불러야 하는 함수를 켠 채로 부름"],
+  ["deny_write_cnt > 0", "file_allow_write가 deny보다 많이 불림. 같은 파일(실행 파일 포함)을 두 번 닫았는지 확인"],
+  ["is_interior (elem)", "리스트에 없는 elem을 list_remove함 (두 번 제거, 또는 list_init/push 안 한 elem)"],
+];
+
+// 시스템 콜 반환값 검사. f = 이 프로세스가 지금 가진 fd 표, solo = 호출~반환 사이에 다른 스레드 이벤트가 없음
+// (그때만 열린 파일 수 cnt[2]의 변화를 이 호출 탓으로 봄)
+function fdCheck(ev, call, f, add, solo, usedDup2) {
+  const fd = call.args[0], r = ev.ret, d = solo ? ev.cnt[2] - call.cnt[2] : null;
+  const bad = fd < 0 || (fd >= 2 && !f[fd]);
+  switch (call.name) {
+    case "open":
+      if (r >= 2 && f[r]) add(ev, "err", `open이 이미 열려 있는 fd ${r}를 또 줌. fd 번호 할당 확인`);
+      if (r >= 0 && call.strs[0] === "") add(ev, "err", `빈 이름 open이 fd ${r}를 반환함. -1이어야 함`);
+      else if (r >= 0 && d === 0) add(ev, "err", `open이 fd ${r}를 줬는데 실제로 열린 파일이 없음 (file_open이 안 불림)`);
+      break;
+    case "close":
+      if (fd >= 2 && f[fd] && d === 0 && !usedDup2) add(ev, "warn", `close(${fd}) 뒤에도 파일이 열린 채로 남음. file_close를 불렀는지 확인`);
+      break;
+    case "read": case "write": {
+      const n = call.args[2];
+      if (r > n) add(ev, "err", `${call.name}가 요청한 크기(${n})보다 큰 ${r}를 반환함`);
+      if (bad && r !== -1) add(ev, "err", `열려 있지 않은 fd ${fd}에 ${call.name}했는데 ${r}를 반환함. -1이어야 함`);
+      if (fd >= 2 && f[fd] && r === -1) add(ev, "warn", `열린 fd ${fd}에 ${call.name}했는데 -1을 반환함`);
+      if (call.name === "write" && fd === 1 && r !== n) add(ev, "err", `콘솔 write(1, buf, ${n})가 ${r}를 반환함. 쓴 바이트 수(${n})여야 함`);
+      break;
+    }
+    case "filesize": case "tell":
+      if (bad && r >= 0 && call.name === "filesize") add(ev, "warn", `열려 있지 않은 fd ${fd}의 filesize가 ${r}를 반환함. -1이 자연스러움`);
+      break;
+    case "exec":
+      if (r !== null && r !== -1) add(ev, "err", `exec이 ${r}를 반환함. 성공하면 돌아오지 않고, 실패하면 -1이어야 함`);
+      break;
+  }
 }
 
 // i번째 이벤트 직후의 상태: 스레드 상태, 진행 중인 시스템 콜, fd 테이블
@@ -418,10 +506,22 @@ function describe(ev) {
     case "out": return `<b>${by}</b> 콘솔 출력: <span class="mono">${esc(ev.text)}</span>`;
     case "end": return "테스트 종료 (power_off)";
     case "panic": return `<b>Kernel PANIC</b> at ${esc(ev.file)}:${ev.line} in ${esc(ev.func)}() — "${esc(ev.msg)}" (실행 중: ${by})`;
-    case "timeout": return `<b>시간 초과</b> — ${ev.secs}초 안에 안 끝나서 멈춤 (무한루프/데드락 의심). 프로세스 트리에서 BLOCKED와 진행 중인 시스템 콜 확인`;
-    case "aborted": return `<b>중단됨</b> — power_off 전에 연결이 끊김`;
+    case "timeout": return `<b>시간 초과</b> — ${ev.secs}초 안에 안 끝나서 멈춤 (무한루프/데드락 의심)${stuckHtml(ev)}`;
+    case "aborted": return `<b>중단됨</b> — power_off 전에 연결이 끊김${stuckHtml(ev)}`;
+    case "smash": return `<b>${by}</b>: ${esc(ev.sys)} 시스템 콜에서 돌아올 때 struct thread의 magic이 깨져 있음 (커널 스택 넘침)`;
+    case "dclose": return `<b>${by}</b>가 이미 닫은 파일 ${ev.fp}를 다시 file_close · ${ev.stack2.map((f, k) => esc(f) + (ev.locs2[k] ? ` <span class="note">(${esc(ev.locs2[k])})</span>` : "")).join(" ← ")}`;
   }
   return ev.kind;
+}
+// 멈췄을 때 스레드별 호출 경로 (schedule/thread_block 같은 공통 아래쪽은 빼고 위쪽 몇 개만)
+function stuckHtml(ev) {
+  if (!ev.stuck || !ev.stuck.length) return "";
+  const skip = new Set(["thread_launch", "schedule", "do_schedule", "thread_block", "thread_yield", "??"]);
+  return `<div style="margin-top:6px"><b>멈춘 스레드</b> (멈춘 시점의 호출 경로, 위가 가장 안쪽)</div>` + ev.stuck.map(t => {
+    const fr = t.stack.map((f, k) => [f, t.locs[k]]).filter(([f]) => !skip.has(f)).slice(0, 5);
+    const lk = t.lock ? ` · lock ${t.lock.addr} 대기 (주인: ${t.lock.holder != null ? tname(t.lock.holder) : "없음"})` : "";
+    return `<div class="mono" style="margin-left:10px"><b>${tname(t.id)}</b> [${t.status}]${lk}: ${fr.map(([f, l]) => esc(f) + (l ? ` <span class="note">(${esc(l)})</span>` : "")).join(" ← ")}</div>`;
+  }).join("");
 }
 function short(ev) {
   switch (ev.kind) {
@@ -435,6 +535,8 @@ function short(ev) {
     case "exit": return `종료 ${tname(ev.target)}`;
     case "out": return `› ${esc(ev.text)}`;
     case "run_task": return `run ${esc(ev.cmd)}`;
+    case "smash": return `커널 스택 넘침 (${esc(ev.sys)})`;
+    case "dclose": return `file_close 두 번 ${ev.fp}`;
   }
   return ev.kind;
 }
