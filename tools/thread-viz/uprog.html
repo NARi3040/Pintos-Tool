@@ -1,0 +1,816 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pintos Userprog Viewer</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #6b7385; --line: #dde1e8;
+  --run: #2f9e5b; --ready: #3b6fd8; --blocked: #8a8f9c; --sleep: #b07a1f; --dying: #c94a4a;
+  --hl: #fff3c4; --accent: #3b6fd8; --warn: #b07a1f; --proc: #7a4fd0; --file: #2a8a9a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171d; --panel: #1c2028; --text: #e3e6ec; --muted: #8b93a5; --line: #2c323d;
+    --run: #3fbf72; --ready: #5b8cf0; --blocked: #6b7180; --sleep: #d29a3a; --dying: #e06666;
+    --hl: #4a4220; --accent: #5b8cf0; --warn: #d29a3a; --proc: #a07cf0; --file: #4bb8c8;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171d; --panel: #1c2028; --text: #e3e6ec; --muted: #8b93a5; --line: #2c323d;
+  --run: #3fbf72; --ready: #5b8cf0; --blocked: #6b7180; --sleep: #d29a3a; --dying: #e06666;
+  --hl: #4a4220; --accent: #5b8cf0; --warn: #d29a3a; --proc: #a07cf0; --file: #4bb8c8;
+}
+* { box-sizing: border-box; }
+body { overflow-anchor: none; margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 system-ui, "Noto Sans KR", sans-serif; }
+code, .mono { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 12.5px; }
+header { padding: 8px 16px; display: flex; flex-direction: column; gap: 6px;
+  background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; }
+.hrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.hrow .grow { flex: 1; }
+header h1 { font-size: 15px; margin: 0 6px 0 0; }
+header a { color: var(--accent); font-size: 13px; }
+#test { max-width: min(460px, 100%); }
+select, button { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 9px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:disabled { opacity: .55; cursor: default; border-color: var(--line); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; min-width: 76px; }
+label.chk { color: var(--muted); font-size: 13px; display: flex; gap: 4px; align-items: center; }
+#slider { flex: 1 1 200px; min-width: 120px; accent-color: var(--accent); }
+#pos { color: var(--muted); min-width: 120px; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; padding: 12px 16px; align-items: start; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 12px; min-width: 0; }
+.panel.now { border-left: 4px solid var(--accent); }
+.panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 8px; }
+#desc { font-size: 15px; overflow-wrap: anywhere; }
+#desc .kind { display: inline-block; padding: 1px 8px; border-radius: 4px; background: var(--accent); color: #fff; font-size: 12px; margin-right: 6px; }
+#stack { color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
+#stack a { color: var(--accent); cursor: pointer; }
+#stack a.sel { text-decoration: underline; font-weight: 600; }
+details summary { cursor: pointer; color: var(--muted); }
+#src-title { color: var(--muted); margin: 8px 0 4px; }
+#src { margin: 0; overflow-x: auto; background: var(--bg); border-radius: 6px; padding: 6px 0; }
+#src div { padding: 0 10px; white-space: pre; }
+#src div.on { background: var(--hl); }
+#src .ln { display: inline-block; width: 42px; color: var(--muted); text-align: right; margin-right: 12px; user-select: none; }
+.viol { margin-top: 8px; border: 1px solid var(--dying); border-radius: 6px; padding: 6px 10px; color: var(--dying); font-size: 13px; }
+.viol div::before { content: "⚠ "; }
+.viol .warn { color: var(--warn); }
+.viol .warn::before { content: "참고: "; }
+/* 프로세스 트리 */
+.tree { margin: 0; padding: 0; list-style: none; }
+.tree ul { list-style: none; margin: 0 0 0 18px; padding: 0 0 0 12px; border-left: 1px dashed var(--line); }
+.node { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: baseline; border: 2px solid var(--c); border-radius: 8px;
+  padding: 3px 9px; margin: 3px 0; background: var(--panel); }
+.node.me { background: var(--hl); }
+.node.gone { opacity: .55; border-style: dashed; }
+.node .nm { font-weight: 600; }
+.node .sub { font-size: 12px; color: var(--muted); }
+.st { font-weight: 600; font-size: 12px; }
+.st-RUNNING { color: var(--run); } .st-READY { color: var(--ready); } .st-BLOCKED { color: var(--blocked); } .st-DYING, .st-EXIT { color: var(--dying); }
+/* 타임라인 */
+.cvwrap { overflow-x: auto; }
+canvas { display: block; cursor: pointer; }
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 6px; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 12px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+/* 탭 */
+.tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line); margin: -4px 0 10px; }
+.tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--muted); padding: 6px 10px; }
+.tabs button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.tabs button.alert::after { content: " ●"; color: var(--dying); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 500; }
+.tblwrap { overflow-x: auto; }
+tr.hl td { background: var(--hl); }
+tr.pad td { color: var(--muted); }
+td.lbl { font-weight: 600; white-space: nowrap; }
+td.lbl.argv { color: var(--accent); } td.lbl.str { color: var(--file); } td.lbl.ret { color: var(--proc); } td.lbl.bad { color: var(--dying); }
+.checks { margin: 8px 0; padding: 0; list-style: none; font-size: 13px; }
+.checks li::before { content: "✓ "; color: var(--run); font-weight: 700; }
+.checks li.err { color: var(--dying); } .checks li.err::before { content: "✗ "; color: var(--dying); }
+.checks li.warn { color: var(--warn); } .checks li.warn::before { content: "! "; color: var(--warn); }
+.kv { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 8px; }
+.kv span { border: 1px solid var(--line); border-radius: 6px; padding: 1px 8px; background: var(--bg); }
+.note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+a.jump { color: var(--accent); cursor: pointer; }
+.res { font-weight: 700; padding: 2px 9px; border-radius: 6px; font-size: 13px; color: #fff; }
+.res.pass { background: var(--run); } .res.fail { background: var(--dying); } .res.none { background: var(--blocked); }
+#summary { color: var(--muted); font-size: 13px; }
+/* 이벤트 목록 */
+#events { position: sticky; top: calc(var(--hh, 90px) + 12px); max-height: calc(100vh - var(--hh, 90px) - 24px); overflow-y: auto; padding: 0; }
+#events div { padding: 3px 10px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 12.5px; display: flex; gap: 6px; }
+#events div:hover { background: var(--bg); }
+#events div.cur { background: var(--hl); }
+#events div.bad { color: var(--dying); }
+#events div.bad span:last-child::before { content: "⚠ "; }
+#events .t { color: var(--muted); min-width: 34px; text-align: right; flex: none; }
+#events .who { flex: none; font-weight: 600; }
+#events .tx { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+pre.box { max-height: 320px; overflow: auto; margin: 0; white-space: pre-wrap; background: var(--bg); border-radius: 6px; padding: 8px; }
+#prog { display: none; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+#prog .bar { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; margin: 6px 0; }
+#prog .bar i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+#prog .done { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; }
+#prog .done span { border: 1px solid var(--line); border-radius: 5px; padding: 0 6px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="hrow">
+    <h1>Pintos 유저 프로그램 흐름</h1>
+    <select id="test"></select>
+    <span id="res" class="res none"></span>
+    <span id="summary"></span>
+    <span class="grow"></span>
+    <label class="chk"><input type="checkbox" id="f-boot" checked>부팅 출력 숨김</label>
+    <label class="chk"><input type="checkbox" id="f-out">콘솔 출력 숨김</label>
+    <a href="viewer.html">Project 1 뷰어</a>
+  </div>
+  <div class="hrow">
+    <button id="prev" title="이전 (←)">◀</button>
+    <button id="play" class="primary" title="재생/정지 (space)">▶ 재생</button>
+    <button id="next" title="다음 (→)">▶</button>
+    <select id="speed"><option value="900">느리게</option><option value="450" selected>보통</option><option value="150">빠르게</option></select>
+    <input type="range" id="slider" min="0" value="0">
+    <span id="pos" class="mono"></span>
+    <button id="nextbad" title="다음 이상 이벤트로 (n)">⚠ 다음 이상</button>
+  </div>
+</header>
+<div id="prog"></div>
+<main>
+  <div>
+    <div class="panel now"><h2>이번 이벤트</h2><div id="desc"></div><div id="stack" class="mono"></div><div id="viol"></div>
+      <details id="src-panel"><summary>소스 (call stack 항목 클릭하면 바뀜)</summary>
+        <div id="src-title" class="mono"></div><div id="src" class="mono"></div></details></div>
+    <div class="panel"><h2>프로세스 트리 — 이벤트 직후 (부모 → 자식)</h2><ul class="tree" id="tree"></ul></div>
+    <div class="panel"><h2>타임라인 (가로축 = 이벤트 순서, 클릭하면 이동)</h2>
+      <div class="cvwrap"><canvas id="tl"></canvas></div>
+      <div class="legend"><span><i style="background:var(--run)"></i>RUNNING</span><span><i style="background:var(--ready)"></i>READY</span>
+        <span><i style="background:var(--blocked)"></i>BLOCKED</span><span><i style="background:var(--proc)"></i>fork / exec / wait / exit</span>
+        <span><i style="background:var(--file)"></i>파일 시스템 콜</span><span><i style="background:var(--dying)"></i>page fault / 이상</span></div>
+      <div class="note">아래: 테스트 시작 후 할당돼 아직 안 풀린 페이지 수(palloc)와 열린 파일 수. 끝에서 0으로 안 돌아오면 누수임</div>
+      <div class="cvwrap"><canvas id="mem"></canvas></div>
+      <div class="note mono" id="mem-now"></div>
+    </div>
+    <div class="panel">
+      <div class="tabs" role="tablist">
+        <button data-t="stack" id="tab-stack" role="tab">유저 스택 (인자 전달)</button><button data-t="fd" role="tab">fd 테이블</button><button data-t="fault" id="tab-fault" role="tab">page fault / 예외</button><button data-t="leak" id="tab-leak" role="tab">누수 검사</button><button data-t="ck" id="tab-ck" role="tab">채점 결과 (.ck)</button><button data-t="out" role="tab">테스트 출력</button>
+      </div>
+      <div class="tp" id="tp-stack"></div>
+      <div class="tp" id="tp-fd" hidden></div>
+      <div class="tp" id="tp-fault" hidden></div>
+      <div class="tp" id="tp-leak" hidden></div>
+      <div class="tp" id="tp-ck" hidden><pre class="box mono" id="ck"></pre></div>
+      <div class="tp" id="tp-out" hidden><pre class="box mono" id="out"></pre></div>
+    </div>
+  </div>
+  <aside class="panel" id="events"></aside>
+</main>
+<script src="udata.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const TR = window.TRACES || {};
+let T, view = [], idx = 0, timer = null, srcSel = null, tlCache = null;
+const USER_STACK = 0x47480000, KERN_BASE = 0x8004000000;
+const esc = t => String(t ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const hex = v => v == null ? "?" : "0x" + v.toString(16);
+const color = i => `hsl(${(i * 67 + 200) % 360} 62% 50%)`;
+// x86 예외 번호 -> 이름 (kill()로 죽은 경우. 14 = page fault는 따로 기록)
+const VEC = { 0: "#DE 0으로 나누기", 3: "#BP", 4: "#OF", 5: "#BR", 6: "#UD 잘못된 명령어", 7: "#NM", 11: "#NP", 12: "#SS 스택 세그먼트", 13: "#GP 일반 보호 (비정규 주소 등)", 16: "#MF", 17: "#AC", 19: "#XF" };
+const vecName = v => VEC[v] || "예외 " + v;
+const PROC = new Set(["fork", "exec", "wait", "exit", "halt"]);
+
+function tname(i) { return i == null ? "?" : esc(T.threads[i] ? T.threads[i].name : "#" + i); }
+function tlabel(i) {
+  const t = T.threads[i];
+  return t ? `${esc(t.name)}${t.tid != null ? `<small class="mono"> (tid ${t.tid})</small>` : ""}` : "?";
+}
+
+// ---- 유저 스택 바이트 읽기 (uentry 이벤트의 stack_hex = rsp부터 USER_STACK까지) ----
+function stackView(ev) {
+  const h = ev.stack_hex, base = ev.regs.rsp;
+  if (h == null) return null;
+  const n = h.length / 2;
+  const byte = a => { const o = a - base; return o >= 0 && o < n ? parseInt(h.substr(o * 2, 2), 16) : null; };
+  const q = a => {   // 8바이트 little-endian. 2^53 넘는 값은 정밀도를 잃지만 여기서 다루는 주소는 그보다 작음
+    let v = 0;
+    for (let k = 7; k >= 0; k--) { const b = byte(a + k); if (b == null) return null; v = v * 256 + b; }
+    return v;
+  };
+  const str = a => { let s = ""; for (let k = 0; k < 256; k++) { const b = byte(a + k); if (b == null) return null; if (!b) return s; s += String.fromCharCode(b); } return s + "…"; };
+  return { base, n, byte, q, str, top: base + n };
+}
+
+// 인자 전달 검사. cmd = 이 진입 직전 process_exec에 넘어간 명령줄
+function argCheck(ev, cmd) {
+  const out = [], sv = stackView(ev), r = ev.regs;
+  const want = (cmd || "").split(" ").filter(Boolean);
+  const add = (lvl, msg) => out.push({ lvl, msg });
+  if (!sv) { add("err", `rsp(${hex(r.rsp)})가 유저 스택(${hex(USER_STACK)} 바로 아래) 범위 밖임. setup_stack 이후 rsp를 옮기는 계산을 확인`); return { out, labels: {} }; }
+  const labels = {};   // 주소 -> [종류, 설명]
+  if (r.rsp % 8) add("err", `rsp(${hex(r.rsp)})가 8바이트 정렬이 아님. 문자열을 넣은 뒤 8의 배수로 내려야 함`);
+  if (r.rdi !== want.length) add("err", `rdi(argc) = ${r.rdi}, 기대값 ${want.length} (명령줄 "${esc(cmd)}")`);
+  else add("ok", `rdi(argc) = ${r.rdi}`);
+  const argc = Math.min(r.rdi, 64);
+  if (r.rsi % 8) add("err", `rsi(argv) = ${hex(r.rsi)}가 8바이트 정렬이 아님`);
+  if (r.rsi < sv.base || r.rsi >= sv.top) add("err", `rsi(argv) = ${hex(r.rsi)}가 유저 스택(rsp ~ ${hex(USER_STACK)}) 안을 가리키지 않음`);
+  else {
+    if (r.rsi !== r.rsp + 8) add("warn", `rsi(argv)가 rsp+8이 아님 (KAIST 문서의 배치는 rsp에 가짜 반환 주소, 바로 위가 argv[0])`);
+    else add("ok", "rsi(argv) = rsp + 8");
+    let okAll = true;
+    for (let k = 0; k <= argc; k++) {
+      const a = r.rsi + 8 * k, p = sv.q(a);
+      if (k === argc) {
+        labels[a] = ["argv", `argv[${k}] (NULL 이어야 함)`];
+        if (p !== 0) { add("err", `argv[${k}](argv[argc])가 NULL이 아님: ${hex(p)}`); okAll = false; }
+        break;
+      }
+      labels[a] = ["argv", `argv[${k}]`];
+      if (p == null) { add("err", `argv[${k}]를 읽을 수 없음 (스택 범위 밖)`); okAll = false; continue; }
+      const s = p >= sv.base && p < sv.top ? sv.str(p) : null;
+      if (s == null) { add("err", `argv[${k}] = ${hex(p)}가 스택 안 문자열을 가리키지 않음`); okAll = false; continue; }
+      labels[p] = ["str", `"${s}" (argv[${k}])`];
+      if (k < want.length && s !== want[k]) { add("err", `argv[${k}] = "${esc(s)}", 기대값 "${esc(want[k])}"`); okAll = false; }
+    }
+    if (okAll) add("ok", `argv[0..${argc - 1}] 문자열과 argv[${argc}] = NULL`);
+  }
+  const ret = sv.q(r.rsp);
+  labels[r.rsp] = labels[r.rsp] || ["ret", "가짜 반환 주소"];
+  if (ret !== 0 && labels[r.rsp][0] === "ret") add("warn", `rsp가 가리키는 가짜 반환 주소가 0이 아님 (${hex(ret)})`);
+  return { out, labels };
+}
+
+// ---- 트레이스 전처리: 상태 펼치기, 검사 ----
+function prepare(T) {
+  if (T.ready) return;
+  T.ready = true;
+  const sig = T.sig || {};
+  const pend = {}, exitCode = {}, exited = {}, printed = {}, waited = new Set(), lastExec = {}, uentered = {};
+  let started = false;
+  T.events.forEach((ev, i) => {
+    ev.i = i; ev.viol = [];
+    if (ev.kind === "run_task") started = true;
+    ev.boot = !started;
+    if (ev.kind === "sys") { ev.sig = sig[ev.name] ?? ""; pend[ev.by] = i; }
+    if (ev.kind === "sysret" && pend[ev.by] === ev.call) delete pend[ev.by];
+    if (ev.kind === "sys" && ev.name === "exit") exitCode[ev.by] = ev.args[0];
+    if (ev.kind === "exec") lastExec[ev.by] = ev.cmd;
+    if (ev.kind === "uentry") { uentered[ev.by] = true; if (pend[ev.by] != null) delete pend[ev.by]; ev.cmd = lastExec[ev.by]; }
+    if (ev.kind === "exit") { exited[ev.target] = i; delete pend[ev.target]; }
+    if (ev.kind === "out") { const m = /^(.+): exit\((-?\d+)\)$/.exec(ev.text); if (m) printed[ev.by] = { name: m[1], code: +m[2], i }; }
+  });
+  T.exitCode = exitCode; T.exited = exited; T.uentered = uentered;
+  const E = T.events, add = (ev, lvl, msg) => ev.viol.push({ lvl, msg });
+  const tidOf = i => T.threads[i] && T.threads[i].tid;
+  const statusOf = j => j in exitCode ? exitCode[j] : -1;   // exit 시스템 콜 없이 죽었으면(fault 등) -1
+  E.forEach((ev, i) => {
+    const by = ev.by;
+    switch (ev.kind) {
+      case "panic": add(ev, "err", `Kernel PANIC: ${esc(ev.msg)} (${esc(ev.file)}:${ev.line})`); break;
+      case "timeout": add(ev, "err", `${ev.secs}초 안에 안 끝남. 아래 프로세스 트리에서 BLOCKED인 프로세스와 진행 중인 시스템 콜 확인`); break;
+      case "aborted": add(ev, "err", "power_off 전에 중단됨"); break;
+      case "uentry":
+        if (ev.via === "process_exec") ev.args_check = argCheck(ev, ev.cmd);
+        if (ev.args_check) for (const c of ev.args_check.out) if (c.lvl !== "ok") add(ev, c.lvl, "인자 전달: " + c.msg);
+        if (ev.via === "__do_fork") {
+          if (ev.regs.rax !== 0) add(ev, "err", `fork 자식의 rax = ${ev.regs.rax}. 자식 쪽 fork() 반환값은 0이어야 함`);
+          const par = T.threads[by] && T.threads[by].parent;
+          const call = E.slice(0, i).reverse().find(e => e.kind === "sys" && e.by === par && e.name === "fork");
+          if (call) {
+            if (call.rip !== ev.regs.rip) add(ev, "err", `fork 자식이 ${hex(ev.regs.rip)}에서 시작함. 부모가 fork를 부른 위치(${hex(call.rip)})여야 함 (부모의 유저 intr_frame을 복사했는지 확인)`);
+            if (call.rsp !== ev.regs.rsp) add(ev, "err", `fork 자식의 rsp(${hex(ev.regs.rsp)})가 부모의 유저 rsp(${hex(call.rsp)})와 다름`);
+          }
+        }
+        break;
+      case "sysret": {
+        const call = E[ev.call];
+        if (call.bad && call.bad.length) add(ev, "err", `${call.name}에 잘못된 포인터를 넘겼는데 프로세스를 끝내지 않고 반환함. exit(-1)로 종료해야 함`);
+        if (call.name === "fork" && ev.ret !== -1) {
+          const kid = T.threads.findIndex((t, j) => t.parent === by && E.some((e, k) => k > ev.call && k < i && e.kind === "create" && e.target === j));
+          if (kid >= 0 && tidOf(kid) !== ev.ret) add(ev, "err", `fork가 ${ev.ret}를 반환함. 만든 자식의 tid는 ${tidOf(kid)}`);
+        }
+        if (call.name === "wait") {
+          const t = call.args[0], j = T.threads.findIndex(x => x.tid === t && x.parent === by), key = by + ":" + t;
+          let want = -1, why = "자식이 아니거나 없는 pid";
+          if (j >= 0 && waited.has(key)) why = "이미 wait한 자식";
+          else if (j >= 0) { want = statusOf(j); why = `자식 ${tname(j)}의 종료 코드`; waited.add(key); }
+          if (ev.ret !== want) add(ev, "err", `wait(${t})가 ${ev.ret}를 반환함. 기대값 ${want} (${why})`);
+        }
+        if (call.name === "open" && (ev.ret === 0 || ev.ret === 1)) add(ev, "err", `open이 fd ${ev.ret}를 반환함. 0, 1은 표준 입출력 자리임`);
+        break;
+      }
+      case "fault":
+        if (ev.vec != null) { if (!ev.user) add(ev, "err", `커널 코드에서 ${vecName(ev.vec)}`); }
+        else if (!ev.user && ev.addr != null && ev.addr < KERN_BASE)
+          add(ev, "warn", `커널 코드(${esc(ev.ksym || hex(ev.rip))})가 유저 주소 ${hex(ev.addr)}에 접근하다 fault. 시스템 콜 포인터를 미리 검사하지 않았다면 여기서 커널이 죽을 수 있음`);
+        else if (!ev.user) add(ev, "err", `커널 코드(${esc(ev.ksym || hex(ev.rip))})에서 커널 주소 ${hex(ev.addr)} page fault`);
+        if (ev.user && by != null && exited[by] == null) add(ev, "err", "유저 프로그램이 잘못된 주소를 건드렸는데 프로세스가 끝나지 않음. exit(-1)로 종료해야 함");
+        break;
+      case "exit":
+        if (T.uentered[ev.target]) {
+          const p = printed[ev.target], want = statusOf(ev.target), nm = T.threads[ev.target].name;
+          if (!p || p.i < i) add(ev, "err", `종료 메시지 "${esc(nm)}: exit(${want})"가 출력되지 않음`);
+          else if (p.code !== want) add(ev, "err", `종료 메시지가 exit(${p.code}). 기대값 exit(${want})${want === -1 && !(ev.target in exitCode) ? " (커널이 죽인 프로세스)" : ""}`);
+          else if (p.name !== nm) add(ev, "warn", `종료 메시지 이름이 "${esc(p.name)}". 스레드 이름은 "${esc(nm)}"`);
+        }
+        break;
+      case "end": {
+        // halt는 프로세스가 살아 있는 채로 power_off를 부르므로 누수/미종료 검사를 안 함
+        if (E.some(e => e.kind === "sys" && e.name === "halt")) break;
+        const L = T.leaks;
+        if (L) {
+          const pg = L.pages.filter(p => !p.pending), np = pg.reduce((a, p) => a + p.n, 0);
+          if (np) add(ev, "err", `페이지 ${np}개가 해제되지 않음 (누수 검사 탭)`);
+          if (L.files.length) add(ev, "err", `파일 ${L.files.length}개가 닫히지 않음 (누수 검사 탭)`);
+        }
+        const alive = Object.keys(T.uentered).filter(j => exited[j] == null);
+        if (alive.length) add(ev, "warn", `종료하지 않은 유저 프로세스: ${alive.map(j => tname(+j)).join(", ")}`);
+        break;
+      }
+    }
+  });
+  T.nbad = E.filter(e => e.viol.some(v => v.lvl === "err")).length;
+}
+
+// i번째 이벤트 직후의 상태: 스레드 상태, 진행 중인 시스템 콜, fd 테이블
+function stateAt(i) {
+  const st = {}, pend = {}, fds = {}, prog = {}, gone = {}, kwait = {};
+  for (let k = 0; k <= i + 1 && k < T.events.length; k++) {
+    const e = T.events[k];
+    if (e.st) Object.assign(st, e.st);   // 상태 스냅샷은 이벤트 진입 시점이라 다음 이벤트 것이 "직후"임
+    if (k > i) break;
+    // 커널 안의 process_wait(main이 initd를 기다리는 것 등): 그 스레드의 다음 이벤트까지 대기 중으로 봄
+    if (e.kind === "wait") kwait[e.by] = e.child; else if (e.by != null) delete kwait[e.by];
+    if (e.kind === "create") {
+      const par = e.by, ps = pend[par];
+      fds[e.target] = ps != null && T.events[ps].name === "fork" ? { ...(fds[par] || {}) } : {};
+    }
+    if (e.kind === "exec") prog[e.by] = (e.cmd || "").split(" ")[0];
+    if (e.kind === "sys") pend[e.by] = k;
+    if (e.kind === "sysret") {
+      delete pend[e.by];
+      const c = T.events[e.call], f = fds[e.by] || (fds[e.by] = {});
+      if (c.name === "open" && e.ret >= 0) f[e.ret] = { name: c.strs[0], ev: e.call };
+      if (c.name === "close") delete f[c.args[0]];
+      if (c.name === "dup2" && e.ret >= 0 && f[c.args[0]]) f[c.args[1]] = { ...f[c.args[0]], ev: e.call };
+    }
+    if (e.kind === "uentry") delete pend[e.by];
+    if (e.kind === "exit") { gone[e.target] = k; delete pend[e.target]; }
+  }
+  return { st, pend, fds, prog, gone, kwait };
+}
+
+// ---- 이벤트 설명 ----
+function fmtArg(ev, k) {
+  const c = ev.sig[k], v = ev.args[k], bad = (ev.bad || []).includes(k);
+  if (c === "s") return ev.strs[k] != null ? `"${esc(ev.strs[k])}"` : `<span class="st-DYING">${hex(v)} (잘못된 포인터)</span>`;
+  if (c === "b" || c === "p") return bad ? `<span class="st-DYING">${hex(v)} (잘못된 포인터)</span>` : hex(v);
+  return String(v);
+}
+function callText(ev, full) {
+  let s = `${esc(ev.name)}(${ev.args.map((_, k) => fmtArg(ev, k)).join(", ")})`;
+  if (full && ev.buf != null) s += ` <span class="mono" style="color:var(--muted)">내용: "${esc(ev.buf.replace(/\n/g, "\\n"))}"</span>`;
+  return s;
+}
+function retText(ev) {
+  if (!("ret" in ev)) return "";
+  if (ev.ret === null) return " → 돌아오지 않음 (새 프로그램으로 전환)";
+  const b = ev.name === "create" || ev.name === "remove" ? ` (${ev.ret ? "true" : "false"})` : "";
+  return ` → <b>${ev.ret}</b>${b}`;
+}
+function describe(ev) {
+  const by = tname(ev.by);
+  switch (ev.kind) {
+    case "run_task": return `테스트 시작: <b>${esc(ev.cmd)}</b> (run_task → process_create_initd)`;
+    case "create": return `<b>${by}</b>가 스레드 <b>${tname(ev.target)}</b> 생성 (thread_create)`;
+    case "exec": return `<b>${by}</b>가 process_exec("${esc(ev.cmd)}") — 지금 주소 공간을 지우고 새 프로그램을 올림`;
+    case "uentry": {
+      const sym = T.usyms[`${ev.prog}@${ev.regs.rip.toString(16)}`];
+      const where = sym ? ` (${esc(sym.fn)})` : "";
+      return ev.via === "__do_fork"
+        ? `<b>${by}</b> fork 자식이 유저 모드로 돌아감 (do_iret) · rip ${hex(ev.regs.rip)}${where} · rax(fork 반환값) = <b>${ev.regs.rax}</b>`
+        : `<b>${by}</b> 유저 프로그램 시작 (do_iret, 호출: ${esc(ev.via)}) · rip ${hex(ev.regs.rip)}${where} · rsp ${hex(ev.regs.rsp)} · argc ${ev.regs.rdi} — 스택은 아래 "유저 스택" 탭`;
+    }
+    case "sys": return `<b>${by}</b>: ${callText(ev, true)}${retText(ev)}${"ret" in ev ? "" : ev.name === "exit" ? "" : " (진행 중)"}`;
+    case "sysret": { const c = T.events[ev.call]; return `<b>${by}</b>: ${esc(c.name)} 반환 = <b>${ev.ret}</b> (호출은 tick ${c.tick})`; }
+    case "fault": {
+      if (ev.vec != null) {
+        const code = T.exitCode[ev.by];
+        return `<b>${by}</b> 예외 <b>${vecName(ev.vec)}</b> · ${ev.user ? "유저" : "커널"} 코드 ${hex(ev.rip)} → kill()${T.exited[ev.by] != null ? ` → 종료 (exit(${code ?? -1}))` : ""}`;
+      }
+      const w = ev.err & 2 ? "쓰기" : "읽기", p = ev.err & 1 ? "권한 위반" : "매핑 안 된 페이지";
+      const sym = ev.user ? T.usyms[`${ev.prog}@${ev.rip.toString(16)}`] : null;
+      const at = ev.user ? `유저 코드 ${hex(ev.rip)}${sym ? ` (${esc(sym.fn)}${sym.loc ? " " + esc(sym.loc) : ""})` : ""}` : `커널 코드 ${esc(ev.ksym || hex(ev.rip))}${ev.kloc ? " " + esc(ev.kloc) : ""}`;
+      const code = T.exitCode[ev.by], after = T.exited[ev.by] != null ? ` → 이후 종료 (exit(${code ?? -1}))` : "";
+      return `<b>${by}</b> page fault: 주소 <b>${hex(ev.addr)}</b> ${w} (${p}) · ${at}${after}`;
+    }
+    case "wait": return `<b>${by}</b>가 process_wait(${ev.child}) 진입`;
+    case "exit": return `<b>${tname(ev.target)}</b> 종료 (thread_exit → process_exit)${ev.target in T.exitCode ? ` · exit(${T.exitCode[ev.target]})` : T.uentered[ev.target] ? " · exit 시스템 콜 없이 종료 (커널이 죽임 → -1)" : ""}`;
+    case "out": return `<b>${by}</b> 콘솔 출력: <span class="mono">${esc(ev.text)}</span>`;
+    case "end": return "테스트 종료 (power_off)";
+    case "panic": return `<b>Kernel PANIC</b> at ${esc(ev.file)}:${ev.line} in ${esc(ev.func)}() — "${esc(ev.msg)}" (실행 중: ${by})`;
+    case "timeout": return `<b>시간 초과</b> — ${ev.secs}초 안에 안 끝나서 멈춤 (무한루프/데드락 의심). 프로세스 트리에서 BLOCKED와 진행 중인 시스템 콜 확인`;
+    case "aborted": return `<b>중단됨</b> — power_off 전에 연결이 끊김`;
+  }
+  return ev.kind;
+}
+function short(ev) {
+  switch (ev.kind) {
+    case "sys": return `${callText(ev)}${"ret" in ev && ev.ret !== null ? " = " + ev.ret : ""}`;
+    case "sysret": return `← ${esc(T.events[ev.call].name)} = ${ev.ret}`;
+    case "create": return `생성 → ${tname(ev.target)}`;
+    case "exec": return `exec "${esc(ev.cmd)}"`;
+    case "uentry": return ev.via === "__do_fork" ? `유저 복귀 (fork 자식, rax=${ev.regs.rax})` : `유저 시작 argc=${ev.regs.rdi}`;
+    case "fault": return ev.vec != null ? `예외 ${vecName(ev.vec).split(" ")[0]}` : `page fault @${hex(ev.addr)}${ev.user ? "" : " (커널)"}`;
+    case "wait": return `process_wait(${ev.child})`;
+    case "exit": return `종료 ${tname(ev.target)}`;
+    case "out": return `› ${esc(ev.text)}`;
+    case "run_task": return `run ${esc(ev.cmd)}`;
+  }
+  return ev.kind;
+}
+
+function isHidden(ev) {
+  if (ev.viol.length) return false;
+  if ($("f-boot").checked && ev.boot && ev.kind === "out") return true;
+  if ($("f-out").checked && ev.kind === "out") return true;
+  // 같은 스레드 이벤트만 사이에 있으면 반환을 호출 줄에 합쳐 보여주므로 sysret은 숨김
+  if (ev.kind === "sysret" && T.events.slice(ev.call + 1, ev.i).every(e => e.by === ev.by)) return true;
+  return false;
+}
+
+// ---- 렌더링 ----
+function render() {
+  if (!view.length) return;
+  idx = Math.max(0, Math.min(idx, view.length - 1));
+  const ev = view[idx];
+  $("slider").value = idx;
+  $("pos").textContent = `${idx + 1}/${view.length} · tick ${ev.tick ?? "?"}`;
+  $("desc").innerHTML = `<span class="kind">${ev.kind}</span>${describe(ev)}`;
+  // call stack: 커널 위치 + (있으면) 유저 코드 위치
+  const frames = (ev.stack || []).map((f, k) => [f, (ev.locs || [])[k]]);
+  const us = ev.kind === "fault" && ev.user ? T.usyms[`${ev.prog}@${ev.rip.toString(16)}`]
+    : ev.kind === "uentry" ? T.usyms[`${ev.prog}@${ev.regs.rip.toString(16)}`] : null;
+  if (us) frames.unshift([`${us.fn} (유저)`, us.loc]);
+  if (ev.kind === "fault" && !ev.user && ev.kloc) frames.unshift([ev.ksym, ev.kloc]);
+  if (srcSel == null || srcSel.ev !== ev.i) srcSel = { ev: ev.i, k: frames.findIndex(f => f[1]) };
+  $("stack").innerHTML = frames.length ? "call stack: " + frames.map(([f, l], k) => l
+    ? `<a data-k="${k}" class="${k === srcSel.k ? "sel" : ""}">${esc(f)} (${esc(l.split("/").pop())})</a>` : esc(f)).join(" ← ") : "";
+  $("stack").querySelectorAll("a").forEach(a => a.onclick = () => { srcSel.k = +a.dataset.k; render(); });
+  $("viol").innerHTML = ev.viol.length ? `<div class="viol">${ev.viol.map(v => `<div class="${v.lvl}">${v.msg}</div>`).join("")}</div>` : "";
+  showSource(frames[srcSel.k] && frames[srcSel.k][1]);
+  const S = stateAt(ev.i);
+  renderTree(ev, S);
+  renderStack(ev);
+  renderFd(ev, S);
+  document.querySelectorAll("#events div.cur").forEach(d => d.classList.remove("cur"));
+  const row = $("events").querySelector(`div[data-k="${idx}"]`);
+  if (row) { row.classList.add("cur"); row.scrollIntoView({ block: "nearest" }); }
+  drawTimeline(); drawMem();
+  try { history.replaceState(null, "", "#" + encodeURIComponent(T.name) + "/" + idx); } catch (e) {}
+}
+
+function showSource(loc) {
+  if (!loc || !T.sources) { $("src-title").textContent = "소스 위치 없음"; $("src").innerHTML = ""; return; }
+  const path = loc.slice(0, loc.lastIndexOf(":")), ln = +loc.slice(loc.lastIndexOf(":") + 1);
+  const lines = (T.sources[path] || "").split("\n");
+  $("src-title").textContent = loc;
+  let html = "";
+  for (let n = Math.max(1, ln - 7); n <= Math.min(lines.length, ln + 7); n++)
+    html += `<div class="${n === ln ? "on" : ""}"><span class="ln">${n}</span>${esc(lines[n - 1]).replace(/\t/g, "    ")}</div>`;
+  $("src").innerHTML = html;
+}
+
+function renderTree(ev, S) {
+  const kids = {};
+  const shown = T.threads.map((t, j) => j).filter(j => T.threads[j].name !== "idle" &&
+    T.events.findIndex(e => e.kind === "create" && e.target === j) <= ev.i);
+  for (const j of shown) { const p = T.threads[j].parent; (kids[p ?? "root"] = kids[p ?? "root"] || []).push(j); }
+  const node = j => {
+    const t = T.threads[j], gone = S.gone[j] != null, st = gone ? "EXIT" : S.st[j] || "?";
+    const code = T.exitCode[j];
+    let doing = "";
+    if (gone) doing = `종료됨${code != null ? ` · exit(${code})` : T.uentered[j] ? " · 커널이 죽임 (-1)" : ""}`;
+    else if (S.pend[j] != null) {
+      const c = T.events[S.pend[j]];
+      doing = `${st === "BLOCKED" ? "대기 중: " : "진행 중: "}${callText(c)}`;
+    } else if (S.kwait[j] != null) doing = `process_wait(${S.kwait[j]}) 대기 중`;
+    const prog = S.prog[j] && S.prog[j] !== t.name ? ` <span class="sub">exec: ${esc(S.prog[j])}</span>` : "";
+    const sub = (kids[j] || []).map(node).join("");
+    return `<li><span class="node${ev.by === j || ev.target === j ? " me" : ""}${gone ? " gone" : ""}" style="--c:${color(j)}">
+      <span class="nm">${tlabel(j)}</span>${prog}<span class="st st-${st}">${gone ? "" : st}</span><span class="sub">${doing}</span></span>${sub ? `<ul>${sub}</ul>` : ""}</li>`;
+  };
+  $("tree").innerHTML = (kids.root || []).map(node).join("") || '<li class="note">아직 프로세스 없음</li>';
+}
+
+// 유저 스택 탭: 지금 이벤트 또는 그 이전 마지막 유저 진입(process_exec)의 스택
+function renderStack(ev) {
+  const ents = T.events.filter(e => e.kind === "uentry");
+  const cur = [...ents].reverse().find(e => e.i <= ev.i && e.via === "process_exec") || ents.find(e => e.via === "process_exec");
+  const el = $("tp-stack");
+  if (!cur) { el.innerHTML = '<div class="note">유저 프로그램 진입(process_exec → do_iret)이 기록되지 않음. load가 실패했거나 initd가 process_exec까지 못 감</div>'; return; }
+  const pick = ents.filter(e => e.via === "process_exec").map(e =>
+    `<a class="jump" data-i="${e.i}"${e === cur ? ' style="font-weight:700"' : ""}>${tname(e.by)}: "${esc(e.cmd)}"</a>`).join(" · ");
+  const r = cur.regs, chk = cur.args_check, sv = stackView(cur);
+  let html = `<div class="note" style="margin:0 0 6px">유저 진입 목록: ${pick}</div>
+    <div class="kv mono"><span>명령줄 "${esc(cur.cmd)}"</span><span>rip ${hex(r.rip)}</span><span>rsp ${hex(r.rsp)}</span><span>rdi(argc) ${r.rdi}</span><span>rsi(argv) ${hex(r.rsi)}</span></div>
+    <ul class="checks">${chk.out.map(c => `<li class="${c.lvl}">${c.msg}</li>`).join("")}</ul>`;
+  if (sv) {
+    // 8바이트 칸 단위로 위(높은 주소)부터. 문자열 칸은 글자를, 포인터 칸은 가리키는 곳을 보여줌
+    const rows = [];
+    const start = r.rsp - (r.rsp % 8);
+    const strOwner = {};
+    for (const [a, [kind, d]] of Object.entries(chk.labels)) if (kind === "str") { const s = sv.str(+a) || ""; for (let k = 0; k <= s.length; k++) strOwner[+a + k] = d; }
+    for (let a = start; a < sv.top; a += 8) {
+      const bytes = [...Array(8).keys()].map(k => sv.byte(a + k));
+      const val = sv.q(a);
+      const lab = chk.labels[a];
+      let kind = lab ? lab[0] : "", desc = lab ? lab[1] : "";
+      const chars = bytes.map(b => b == null ? " " : b === 0 ? "·" : b >= 32 && b < 127 ? String.fromCharCode(b) : "?").join("");
+      const owners = [...new Set(bytes.map((_, k) => strOwner[a + k]).filter(Boolean))];
+      if ((!lab || kind === "str") && owners.length) { kind = "str"; desc = "문자열 " + owners.join(", "); }
+      if (!lab && !owners.length) { kind = bytes.every(b => b === 0) ? "pad" : ""; desc = kind === "pad" ? "0 (정렬 패딩 등)" : ""; }
+      if (kind === "argv" && val != null && val !== 0) desc += ` → ${hex(val)}`;
+      rows.push(`<tr class="${kind === "pad" ? "pad" : ""}${a === r.rsp ? " hl" : ""}"><td class="mono">${hex(a)}${a === r.rsp ? " ← rsp" : ""}${a === r.rsi ? " ← rsi" : ""}</td>
+        <td class="mono">${bytes.map(b => b == null ? "??" : b.toString(16).padStart(2, "0")).join(" ")}</td><td class="mono">${esc(chars)}</td>
+        <td class="lbl ${kind}">${esc(desc)}</td></tr>`);
+    }
+    html += `<div class="tblwrap"><table><thead><tr><th>주소 (아래가 낮은 주소)</th><th>바이트 (낮은 주소 → 높은 주소)</th><th>글자</th><th>의미</th></tr></thead>
+      <tbody>${rows.reverse().join("")}</tbody></table></div>
+      <div class="note">USER_STACK = ${hex(USER_STACK)}. 맨 위가 스택 꼭대기(높은 주소), 맨 아래가 rsp. KAIST 배치: 문자열 → 8바이트 정렬 패딩 → argv[argc]=NULL → argv[argc-1..0] → 가짜 반환 주소</div>`;
+  }
+  // fork 자식 진입도 같이 보여줌 (rax = 0인지)
+  const forks = ents.filter(e => e.via === "__do_fork");
+  if (forks.length) html += `<div class="note" style="margin-top:10px">fork 자식 유저 복귀: ${forks.map(e =>
+    `<a class="jump" data-i="${e.i}">${tname(e.by)} rax=${e.regs.rax}${e.viol.length ? " ⚠" : ""}</a>`).join(" · ")}</div>`;
+  el.innerHTML = html;
+  el.querySelectorAll("a.jump").forEach(a => a.onclick = () => jump(+a.dataset.i));
+}
+
+function renderFd(ev, S) {
+  const live = Object.keys(S.fds).map(Number).filter(j => T.uentered[j] && T.events.findIndex(e => e.kind === "uentry" && e.by === j) <= ev.i);
+  $("tp-fd").innerHTML = (live.length ? live.map(j => {
+    const f = S.fds[j], ks = Object.keys(f).map(Number).sort((a, b) => a - b), gone = S.gone[j] != null;
+    return `<div style="margin-bottom:10px"><b style="color:${color(j)}">${tlabel(j)}</b>${gone ? ' <span class="st st-EXIT">종료됨</span>' : ""}
+      <table><thead><tr><th style="width:60px">fd</th><th>파일</th><th>연 곳</th></tr></thead><tbody>
+      <tr class="pad"><td>0</td><td>stdin (키보드)</td><td></td></tr><tr class="pad"><td>1</td><td>stdout (콘솔)</td><td></td></tr>
+      ${ks.map(k => `<tr><td class="mono">${k}</td><td>${esc(f[k].name ?? "?")}</td><td><a class="jump" data-i="${f[k].ev}">${tname(T.events[f[k].ev].by)} 이벤트 ${f[k].ev}</a></td></tr>`).join("")}
+      </tbody></table></div>`;
+  }).join("") : '<div class="note">아직 유저 프로세스 없음</div>') +
+    '<div class="note">시스템 콜 반환값으로 재구성한 fd 표임 (open 성공 → 추가, close → 삭제, fork → 부모 것 복사). 커널 안의 실제 표와 다르면 그 자체가 버그 신호임</div>';
+  $("tp-fd").querySelectorAll("a.jump").forEach(a => a.onclick = () => jump(+a.dataset.i));
+}
+
+function renderFaults() {
+  const fs = T.events.filter(e => e.kind === "fault");
+  $("tab-fault").classList.toggle("alert", fs.some(e => e.viol.some(v => v.lvl === "err")));
+  $("tp-fault").innerHTML = fs.length ? `<div class="tblwrap"><table><thead><tr><th>프로세스</th><th>주소</th><th>종류</th><th>위치</th><th>결과</th></tr></thead><tbody>${fs.map(e => {
+    const sym = e.user ? T.usyms[`${e.prog}@${e.rip.toString(16)}`] : null;
+    const at = e.user ? `유저 ${hex(e.rip)}${sym ? " " + esc(sym.fn) + (sym.loc ? " (" + esc(sym.loc) + ")" : "") : ""}` : `커널 ${esc(e.ksym || hex(e.rip))}${e.kloc ? " (" + esc(e.kloc) + ")" : ""}`;
+    const res = T.exited[e.by] != null ? `exit(${T.exitCode[e.by] ?? -1})` : "종료 안 됨";
+    return `<tr><td><a class="jump" data-i="${e.i}">${tname(e.by)}</a></td><td class="mono">${hex(e.addr)}</td>
+      <td>${e.vec != null ? vecName(e.vec) : `${e.err & 2 ? "쓰기" : "읽기"} · ${e.err & 1 ? "권한 위반" : "매핑 없음"} · ${e.err & 4 ? "유저 모드" : "커널 모드"}`}</td><td class="mono">${at}</td><td>${res}${e.viol.length ? " ⚠" : ""}</td></tr>`;
+  }).join("")}</tbody></table></div><div class="note">유저 프로그램이 잘못된 주소를 건드리면 커널은 그 프로세스를 exit(-1)로 끝내야 함 (bad-* 테스트). 커널 모드 fault는 시스템 콜 처리 중 유저 포인터를 그대로 썼다는 뜻</div>`
+    : '<div class="note">page fault 없음</div>';
+  $("tp-fault").querySelectorAll("a.jump").forEach(a => a.onclick = () => jump(+a.dataset.i));
+}
+
+function renderLeaks() {
+  const L = T.leaks, el = $("tp-leak");
+  if (!L) {
+    el.innerHTML = `<div class="note">${T.truncated ? "이벤트가 많아 중간에 기록을 멈춰서 누수 검사를 안 함" : "power_off까지 가지 못해서(시간 초과/중단) 누수 검사를 안 함"}</div>`;
+    $("tab-leak").classList.remove("alert"); return;
+  }
+  const real = L.pages.filter(p => !p.pending), pend = L.pages.filter(p => p.pending);
+  $("tab-leak").classList.toggle("alert", !!(real.length || L.files.length));
+  // 같은 호출 경로끼리 묶음
+  const group = arr => { const g = {}; for (const x of arr) { const k = x.stack.join("←") + "|" + (x.name ?? ""); (g[k] = g[k] || []).push(x); } return Object.values(g); };
+  const stackHtml = x => x.stack.map((f, k) => x.locs[k] ? `${esc(f)} <span class="note">(${esc(x.locs[k])})</span>` : esc(f)).join(" ← ");
+  let html = "";
+  html += real.length ? `<h2 style="margin-top:0">해제 안 된 페이지 ${real.reduce((a, p) => a + p.n, 0)}개</h2><div class="tblwrap"><table><thead><tr><th>개수</th><th>풀</th><th>할당한 프로세스</th><th>호출 경로 (palloc을 부른 쪽부터)</th></tr></thead><tbody>${
+    group(real).map(g => `<tr><td>${g.reduce((a, p) => a + p.n, 0)}</td><td>${g[0].user ? "user" : "kernel"}</td><td>${[...new Set(g.map(p => tname(p.by)))].join(", ")}</td><td class="mono">${stackHtml(g[0])}</td></tr>`).join("")}</tbody></table></div>`
+    : `<div class="checks"><li>테스트 시작 후 할당한 페이지가 전부 해제됨</li></div>`;
+  html += L.files.length ? `<h2>닫히지 않은 파일 ${L.files.length}개</h2><div class="tblwrap"><table><thead><tr><th>파일</th><th>연 프로세스</th><th>어떻게</th><th>호출 경로</th></tr></thead><tbody>${
+    L.files.map(f => `<tr><td>${esc(f.name ?? "?")}</td><td>${tname(f.by)}</td><td>${{ open: "file_open", dup: "file_duplicate", reopen: "file_reopen" }[f.how]}</td><td class="mono">${stackHtml(f)}</td></tr>`).join("")}</tbody></table></div>`
+    : `<div class="checks"><li>테스트 중에 연 파일이 전부 닫힘 (실행 파일 포함)</li></div>`;
+  if (pend.length) html += `<div class="note">해제 대기 ${pend.length}개: 이미 종료된 스레드의 struct thread 페이지. 스케줄러가 다음 전환 때 지우므로(destruction_req) 누수가 아님</div>`;
+  html += '<div class="note">기준: run_task 이후 palloc_get_page/multiple로 받고 power_off 때까지 palloc_free로 안 돌려준 페이지, file_open/file_duplicate로 열고 file_close 안 한 파일</div>';
+  el.innerHTML = html;
+}
+
+// ---- 타임라인 ----
+function rows() { return T.threads.map((_, j) => j).filter(j => T.threads[j].name !== "idle"); }
+function drawTimeline() {
+  const cv = $("tl"), css = getComputedStyle(document.documentElement), ids = rows();
+  const L = 120, rowH = 18, H = ids.length * rowH + 6;
+  const W = Math.max(cv.parentElement.clientWidth, Math.min(view.length * 6, 8000) + L), step = (W - L) / view.length;
+  const dpr = window.devicePixelRatio || 1, key = css.getPropertyValue("--run") + "|" + dpr;
+  if (!tlCache || tlCache.view !== view || tlCache.W !== W || tlCache.key !== key) {
+    const off = document.createElement("canvas"); off.width = W * dpr; off.height = H * dpr;
+    const g = off.getContext("2d"); g.scale(dpr, dpr);
+    const col = s => css.getPropertyValue({ RUNNING: "--run", READY: "--ready", BLOCKED: "--blocked" }[s] || "--line");
+    const rowOf = {}; ids.forEach((j, r) => rowOf[j] = r);
+    g.font = "12px system-ui"; g.textBaseline = "middle";
+    ids.forEach((j, r) => { g.fillStyle = css.getPropertyValue("--text"); g.fillText(T.threads[j].name + (T.threads[j].tid != null ? " " + T.threads[j].tid : ""), 4, r * rowH + 3 + rowH / 2); });
+    // 상태는 이벤트 순서대로 누적. 화면에 안 보이는(숨긴) 이벤트의 변화도 반영함
+    const st = {}, gone = {};
+    let vi = 0;
+    T.events.forEach((e, i) => {
+      if (e.st) Object.assign(st, e.st);
+      if (e.kind === "exit") gone[e.target] = true;
+      while (vi < view.length && view[vi].i < i) vi++;
+      if (vi >= view.length || view[vi].i !== i) return;
+      const x = L + vi * step;
+      const nx = T.events[i + 1] && T.events[i + 1].st ? { ...st, ...T.events[i + 1].st } : st;
+      ids.forEach((j, r) => {
+        if (gone[j] || !nx[j]) return;
+        g.fillStyle = col(nx[j]); g.globalAlpha = .55;
+        g.fillRect(x, r * rowH + 6, Math.max(step, 1), rowH - 8);
+        g.globalAlpha = 1;
+      });
+      const r = rowOf[e.by], y = r * rowH + 3 + rowH / 2;
+      const mark = (c, h) => { g.fillStyle = css.getPropertyValue(c); g.fillRect(x + step / 2 - 1.5, y - h / 2, 3, h); };
+      if (e.kind === "sys" && r != null) mark(PROC.has(e.name) ? "--proc" : ["write", "read"].includes(e.name) && e.args[0] < 2 ? "--muted" : "--file", 10);
+      if (e.kind === "fault" && r != null) mark("--dying", 14);
+      if (e.kind === "uentry" && r != null) mark("--run", 14);
+      if (e.kind === "create" && r != null && rowOf[e.target] != null) {
+        g.strokeStyle = css.getPropertyValue("--proc"); g.lineWidth = 1.5; g.beginPath();
+        g.moveTo(x + step / 2, y); g.lineTo(x + step / 2, rowOf[e.target] * rowH + 3 + rowH / 2); g.stroke();
+      }
+      if (e.kind === "exit" && rowOf[e.target] != null) {
+        const ty = rowOf[e.target] * rowH + 3 + rowH / 2;
+        g.strokeStyle = css.getPropertyValue("--text"); g.lineWidth = 1.5; g.beginPath();
+        g.moveTo(x + step / 2 - 4, ty - 4); g.lineTo(x + step / 2 + 4, ty + 4); g.moveTo(x + step / 2 + 4, ty - 4); g.lineTo(x + step / 2 - 4, ty + 4); g.stroke();
+      }
+      if (e.viol.some(v => v.lvl === "err")) { g.fillStyle = css.getPropertyValue("--dying"); g.fillRect(x, 0, Math.max(step, 2), 3); }
+    });
+    tlCache = { view, W, off, key, H, step, L };
+  }
+  cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + "px"; cv.style.height = H + "px";
+  const g = cv.getContext("2d"); g.drawImage(tlCache.off, 0, 0); g.scale(dpr, dpr);
+  g.fillStyle = css.getPropertyValue("--text"); g.globalAlpha = .7;
+  g.fillRect(L + idx * step + step / 2 - 1, 0, 2, H); g.globalAlpha = 1;
+  cv.onclick = e => { const x = e.offsetX - L; if (x >= 0) { idx = Math.floor(x / step); render(); } };
+}
+
+function drawMem() {
+  const cv = $("mem"), css = getComputedStyle(document.documentElement);
+  const L = 120, H = 70, W = $("tl").width / (window.devicePixelRatio || 1) || cv.parentElement.clientWidth, step = (W - L) / view.length;
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + "px"; cv.style.height = H + "px";
+  const g = cv.getContext("2d"); g.scale(dpr, dpr);
+  const pg = view.map(e => e.cnt ? e.cnt[0] + e.cnt[1] : 0), fl = view.map(e => e.cnt ? e.cnt[2] : 0);
+  const mp = Math.max(1, ...pg), mf = Math.max(1, ...fl);
+  g.font = "11px system-ui"; g.textBaseline = "middle"; g.fillStyle = css.getPropertyValue("--muted");
+  g.fillStyle = css.getPropertyValue("--accent"); g.fillText(`— 페이지 (최대 ${mp})`, 4, 16);
+  g.fillStyle = css.getPropertyValue("--file"); g.fillText(`— 파일 (최대 ${mf})`, 4, 34);
+  const line = (vals, m, c) => {
+    g.strokeStyle = css.getPropertyValue(c); g.lineWidth = 1.5; g.beginPath();
+    vals.forEach((v, x) => { const px = L + x * step + step / 2, py = H - 4 - (v / m) * (H - 10); x ? g.lineTo(px, py) : g.moveTo(px, py); });
+    g.stroke();
+  };
+  line(pg, mp, "--accent"); line(fl, mf, "--file");
+  g.fillStyle = css.getPropertyValue("--text"); g.globalAlpha = .7; g.fillRect(L + idx * step + step / 2 - 1, 0, 2, H); g.globalAlpha = 1;
+  const e = view[idx];
+  $("mem-now").textContent = e && e.cnt ? `지금: user ${e.cnt[0]} · kernel ${e.cnt[1]} 페이지 · 파일 ${e.cnt[2]}개` : "";
+  cv.onclick = ev => { const x = ev.offsetX - L; if (x >= 0) { idx = Math.floor(x / step); render(); } };
+}
+
+// ---- 탐색 ----
+function jump(i) { const k = view.findIndex(e => e.i >= i); if (k >= 0) { stop(); idx = k; render(); } }
+function nextBad() {
+  const bad = e => e.viol.length;
+  const k = view.findIndex((e, j) => j > idx && bad(e)), w = k >= 0 ? k : view.findIndex(bad);
+  if (w >= 0) { stop(); idx = w; render(); }
+}
+function rebuild(keep) {
+  const old = view[idx] ? view[idx].i : 0;
+  view = T.events.filter(e => !isHidden(e));
+  tlCache = null;
+  $("slider").max = view.length - 1;
+  $("events").innerHTML = view.map((e, k) => `<div data-k="${k}"${e.viol.some(v => v.lvl === "err") ? ' class="bad"' : ""}><span class="t mono">${e.tick ?? ""}</span><span class="who" style="color:${e.by != null ? color(e.by) : "inherit"}">${e.by != null ? tname(e.by) : ""}</span><span class="tx">${short(e)}</span></div>`).join("");
+  $("events").querySelectorAll("div").forEach(d => d.onclick = () => { stop(); idx = +d.dataset.k; render(); });
+  const f = view.findIndex(e => e.i >= old);
+  idx = keep ? (f >= 0 ? f : view.length - 1) : Math.max(0, view.findIndex(e => !e.boot));
+  render();
+}
+function resultOf(T) {
+  const st = { timeout: " (시간 초과)", panic: " (PANIC)", aborted: " (중단됨)" }[T.status] || "";
+  return !T.result ? ["none", "채점 없음" + st] : T.result.pass ? ["pass", "PASS" + st] : ["fail", "FAIL" + st];
+}
+function load(name) {
+  T = TR[name]; stop(); srcSel = null;
+  prepare(T);
+  const [cls, txt] = resultOf(T);
+  $("res").className = "res " + cls; $("res").textContent = txt + (T.truncated ? " · 앞부분만 기록" : "");
+  $("ck").textContent = T.result ? T.result.detail : "채점 결과 없음 (run.sh로 다시 수집하면 생김)";
+  $("tab-ck").classList.toggle("alert", !!(T.result && !T.result.pass));
+  // Project 2는 채점 실행과 트레이스 실행이 따로임 (REPLAY=0). 테스트 출력 줄이 다르면 둘 다 보여줌
+  const body = s => (s || "").split("\n").filter(l => /^\(|: exit\(/.test(l)).join("\n");
+  const differ = T.trace_output && body(T.trace_output) !== body(T.output);
+  $("out").textContent = (T.output || "") + (differ
+    ? "\n\n--- 트레이스 실행 출력 (채점용 실행과 따로 돌려서 다름. 위가 채점 기준, 화면의 이벤트는 아래 실행 것) ---\n" + T.trace_output : "");
+  if (differ) $("res").textContent += " · 트레이스 실행은 출력이 다름";
+  // 채점은 통과했는데 트레이스 실행에서만 PANIC/시간 초과: gdb 훅으로 커널이 느려지면서 타이밍 문제가 드러난 것일 수 있음
+  if (T.result && T.result.pass && ["panic", "timeout"].includes(T.status))
+    (T.events.find(e => e.kind === T.status) || {}).viol?.push({ lvl: "warn",
+      msg: "채점 실행은 PASS인데 트레이스 실행에서만 이렇게 끝남. gdb 훅 때문에 커널이 느려져서 숨어 있던 타이밍 문제(인터럽트를 끄지 않은 공유 자료구조 접근 등)가 드러난 것일 수 있음. 같은 테스트를 여러 번 돌려 재현되는지 볼 것" });
+  $("tab-stack").classList.toggle("alert", T.events.some(e => e.kind === "uentry" && e.viol.some(v => v.lvl === "err")));
+  const nb = T.events.filter(e => e.viol.length).length;
+  $("nextbad").textContent = nb ? `⚠ 다음 이상 (${nb})` : "✓ 이상 없음";
+  $("nextbad").disabled = !nb;
+  renderFaults(); renderLeaks();
+  try { localStorage.setItem("uv-test", name); } catch (e) {}
+  rebuild(false);
+}
+function showTab(k) {
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === k));
+  document.querySelectorAll(".tp").forEach(p => p.hidden = p.id !== "tp-" + k);
+  try { localStorage.setItem("uv-tab", k); } catch (e) {}
+}
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => showTab(b.dataset.t));
+new ResizeObserver(() => document.documentElement.style.setProperty("--hh", document.querySelector("header").offsetHeight + "px"))
+  .observe(document.querySelector("header"));
+function stop() { clearInterval(timer); timer = null; $("play").textContent = "▶ 재생"; }
+function play() {
+  if (timer) return stop();
+  $("play").textContent = "⏸ 정지";
+  timer = setInterval(() => { if (idx >= view.length - 1) return stop(); idx++; render(); }, +$("speed").value);
+}
+
+// run.sh 진행 상태 폴링 (viewer.html과 같은 progress.json)
+async function pollProgress() {
+  let p;
+  try { p = await (await fetch("progress.json", { cache: "no-store" })).json(); } catch (e) { return; }
+  const el = $("prog");
+  if (p.running) {
+    const pct = p.total ? Math.round(p.done / p.total * 100) : 0, sec = Math.round(Date.now() / 1000 - p.started);
+    const ic = r => r.result === "PASS" ? "✅" : r.result === "FAIL" ? "❌" : "❔";
+    el.style.display = "block";
+    el.innerHTML = `<b>트레이스 수집 중</b> ${p.done}/${p.total} (${pct}%) · 지금: <b>${esc(p.current)}</b> · 경과 ${sec}초
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <div class="done">${p.results.map(r => `<span>${ic(r)} ${esc(r.test)}${{ timeout: " ⏱", panic: " 💥", aborted: " ⛔", attach_failed: " 🔌연결 실패" }[r.status] || ""}</span>`).join("")}</div>`;
+  } else if (p.finished && String(p.finished) !== String(window.TRACES_STAMP)) {
+    let last = null; try { last = sessionStorage.getItem("uv-reloaded"); } catch (e) {}
+    if (last === String(p.finished)) { el.style.display = "none"; return; }
+    try { sessionStorage.setItem("uv-reloaded", String(p.finished)); } catch (e) {}
+    el.style.display = "block"; el.innerHTML = "<b>수집 완료</b> — 새 결과로 새로고침함";
+    location.reload();
+  } else el.style.display = "none";
+}
+setInterval(pollProgress, 1000); pollProgress();
+
+for (const n in TR) TR[n].name = n;
+const broken = Object.keys(TR).filter(n => !(TR[n].events || []).length);
+const names = Object.keys(TR).filter(n => !broken.includes(n));
+if (!names.length) {
+  document.querySelector("main").innerHTML = '<div class="panel">' + (broken.length
+    ? `트레이스 수집에 실패함 (${esc(broken.join(", "))}). tools/thread-viz/run.sh userprog를 다시 실행할 것.`
+    : "udata.js가 없음. Pintos 저장소 루트에서 tools/thread-viz/run.sh userprog (또는 run.sh args-single 처럼 테스트 이름)를 먼저 실행할 것.") + "</div>";
+} else {
+  for (const n of names) { T = TR[n]; prepare(T); }   // 목록에 이상 개수를 붙이려고 전부 미리 검사
+  const icon = n => { const c = resultOf(TR[n])[0]; return c === "pass" ? "✅" : c === "fail" ? "❌" : "❔"; };
+  $("test").innerHTML = names.map(n => `<option value="${n}">${icon(n)} ${n}${TR[n].nbad ? ` — ⚠ ${TR[n].nbad}` : ""}</option>`).join("");
+  const nPass = names.filter(n => TR[n].result && TR[n].result.pass).length, nBad = names.filter(n => TR[n].nbad).length;
+  $("summary").textContent = `PASS ${nPass}/${names.length} · 이상 있는 테스트 ${nBad}개` + (broken.length ? ` · 수집 실패 ${broken.length}개(${broken.join(", ")})` : "");
+  let saved = null; try { saved = localStorage.getItem("uv-test"); } catch (e) {}
+  $("test").value = names.includes(saved) ? saved : names[0];
+  $("test").onchange = () => load($("test").value);
+  $("prev").onclick = () => { stop(); idx--; render(); };
+  $("next").onclick = () => { stop(); idx++; render(); };
+  $("play").onclick = play;
+  $("nextbad").onclick = nextBad;
+  try { $("src-panel").open = localStorage.getItem("uv-src-open") === "1"; } catch (e) {}
+  $("src-panel").ontoggle = () => { try { localStorage.setItem("uv-src-open", $("src-panel").open ? "1" : "0"); } catch (e) {} };
+  $("speed").onchange = () => { if (timer) { stop(); play(); } };
+  $("slider").oninput = () => { stop(); idx = +$("slider").value; render(); };
+  $("f-boot").onchange = $("f-out").onchange = () => rebuild(true);
+  document.addEventListener("keydown", e => {
+    if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT" && e.target.type !== "range" && e.target.type !== "checkbox") return;
+    if (e.key === "ArrowRight") { stop(); idx++; render(); e.preventDefault(); }
+    else if (e.key === "ArrowLeft") { stop(); idx--; render(); e.preventDefault(); }
+    else if (e.key === " ") { play(); e.preventDefault(); }
+    else if (e.key === "n") nextBad();
+  });
+  window.addEventListener("resize", () => { tlCache = null; render(); });
+  // URL 해시로 바로 이동: uprog.html#fork-once/12
+  const [hn, hi] = decodeURIComponent(location.hash.slice(1)).split("/");
+  if (names.includes(hn)) $("test").value = hn;
+  load($("test").value);
+  window.addEventListener("hashchange", () => {
+    const [n, i] = decodeURIComponent(location.hash.slice(1)).split("/");
+    if (names.includes(n) && n !== T.name) { $("test").value = n; load(n); }
+    if (i && Number.isFinite(+i) && +i !== idx) { stop(); idx = +i; render(); }
+  });
+  let tab = null; try { tab = localStorage.getItem("uv-tab"); } catch (e) {}
+  showTab(tab && $("tp-" + tab) ? tab : "stack");
+  if (hi && Number.isFinite(+hi)) { idx = +hi; render(); }
+}
+</script>
+</body>
+</html>

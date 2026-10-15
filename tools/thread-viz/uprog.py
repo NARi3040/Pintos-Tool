@@ -1,0 +1,575 @@
+# Project 2 (User Programs)용 gdb 트레이서. trace.py와 같은 방식(멈추지 않는 브레이크포인트)으로
+# 시스템 콜, 유저 프로그램 진입(스택), fork/exec/wait/exit, page fault, 콘솔 출력, 페이지/파일 할당을 기록함.
+# 훅은 학생이 고치지 않는 원본 코드(syscall_entry, do_iret, page_fault, palloc, file, console)에만 걸어서
+# 구현 방식(fd 테이블, 자식 리스트 구조 등)과 상관없이 동작함.
+import gdb, json, os, re, signal, struct, subprocess, threading
+
+OUT = os.environ["TRACE_OUT"]
+TIMEOUT = float(os.environ.get("TRACE_TIMEOUT", "120"))
+# 이벤트가 이만큼 쌓이면 기록을 멈추고 커널은 끝까지 돌게 둠 (multi-oom은 프로세스를 수천 개 만듦)
+MAX_EVENTS = int(os.environ.get("TRACE_MAX_EVENTS", "30000"))
+truncated = False
+inf = gdb.selected_inferior()
+ROOT = os.path.realpath(os.path.join(os.getcwd(), "../.."))   # build 디렉터리 기준 pintos 루트
+USER_STACK = 0x47480000
+KERN_BASE = 0x8004000000
+SEL_UCSEG = 0x23
+
+def off(expr):
+    return int(gdb.parse_and_eval("(long)&(%s)" % expr))
+
+def u64(addr):
+    return struct.unpack("<Q", bytes(inf.read_memory(addr, 8)))[0]
+
+def i32(addr):
+    return struct.unpack("<i", bytes(inf.read_memory(addr, 4)))[0]
+
+T_TID, T_STATUS, T_NAME = (off("((struct thread *)0)->" + f) for f in ("tid", "status", "name"))
+F = {r: off("((struct intr_frame *)0)->R." + r) for r in ("rax", "rdi", "rsi", "rdx", "r10", "r8", "r9")}
+F.update({r: off("((struct intr_frame *)0)->" + r) for r in ("rip", "rsp", "cs", "error_code")})
+STATUS = ["RUNNING", "READY", "BLOCKED", "DYING"]
+
+# 시스템 콜 번호 -> 이름 (syscall-nr.h의 enum을 그대로 읽음)
+SYSNAMES = [f.name[4:].lower() for f in gdb.parse_and_eval("SYS_HALT").type.fields()]
+# 인자 형태: i=int, u=unsigned, s=문자열 포인터, b=버퍼 포인터(다음 인자가 크기), p=포인터
+SIG = {"halt": "", "exit": "i", "fork": "s", "exec": "s", "wait": "i", "create": "su", "remove": "s",
+       "open": "s", "filesize": "i", "read": "ibu", "write": "ibu", "seek": "iu", "tell": "i", "close": "i",
+       "mmap": "puiii", "munmap": "p", "chdir": "s", "mkdir": "s", "readdir": "ip", "isdir": "i",
+       "inumber": "i", "symlink": "ss", "dup2": "ii", "mount": "sii", "umount": "s"}
+AREGS = ("rdi", "rsi", "rdx", "r10", "r8", "r9")
+
+threads = {}   # 스레드 페이지 주소 -> 고유 id (같은 페이지 재사용 대비)
+info = []      # id -> {name, addr, parent, tid}
+dead = set()
+events = []
+sources = set()
+test_started = False
+
+def cur_addr():
+    return int(gdb.parse_and_eval("$rsp")) & ~0xfff
+
+def cur():
+    return threads.get(cur_addr())
+
+def arg(n):
+    return int(gdb.parse_and_eval("(long)$" + ("rdi", "rsi", "rdx", "rcx")[n]))
+
+def tick():
+    try:
+        return int(gdb.parse_and_eval("'timer.c'::ticks"))
+    except gdb.error:
+        return None
+
+def caller(skip=1, n=3):
+    """호출자 프레임 n개의 (함수 이름, "경로:줄") 목록. skip=1이면 훅이 걸린 함수 자신은 뺌."""
+    f = gdb.selected_frame()
+    for _ in range(skip):
+        f = f and f.older()
+    names, locs = [], []
+    while f and len(names) < n:
+        names.append(f.name() or "??")
+        sal = f.find_sal()
+        loc = None
+        if sal.symtab and sal.line:
+            path = os.path.relpath(sal.symtab.fullname(), ROOT)
+            if not path.startswith(".."):
+                sources.add(path)
+                loc = "%s:%d" % (path, sal.line)
+        locs.append(loc)
+        f = f.older()
+    return names, locs
+
+def read_str(addr, limit=128):
+    """유저 문자열. 못 읽으면 None, 길면 잘라서 끝에 …"""
+    out = b""
+    try:
+        while len(out) < limit:
+            # 페이지 경계를 넘지 않게 나눠 읽음 (뒤 페이지가 매핑 안 돼 있어도 앞부분은 읽히게)
+            n = min(limit - len(out), 0x1000 - ((addr + len(out)) & 0xfff))
+            chunk = bytes(inf.read_memory(addr + len(out), n))
+            z = chunk.find(b"\0")
+            if z >= 0:
+                return (out + chunk[:z]).decode(errors="replace")
+            out += chunk
+    except gdb.MemoryError:
+        if not out:
+            return None
+    return out.decode(errors="replace") + "…"
+
+def read_bytes(addr, n):
+    try:
+        return bytes(inf.read_memory(addr, n))
+    except gdb.MemoryError:
+        return None
+
+# ---- 페이지 / 파일 / 상태 집계 ----
+pages = {}   # 페이지 주소 -> {n, by, user, stack, locs, ev}
+files = {}   # struct file 주소 -> {name, by, how, stack, locs, ev}
+pending_name = {}   # 스레드 -> filesys_open에 넘긴 이름 (file_open 복귀 때 붙임)
+pending_dup = {}    # 스레드 -> file_duplicate 원본 파일 주소
+pending_sys = {}    # 스레드 -> 진행 중인 시스템 콜 이벤트 번호
+last_st = {}
+
+def counts():
+    """테스트 시작 후 할당돼 아직 안 풀린 페이지 수 (유저 풀, 커널 풀), 열린 파일 수"""
+    up = sum(p["n"] for p in pages.values() if p["user"] and p["ev"] is not None)
+    kp = sum(p["n"] for p in pages.values() if not p["user"] and p["ev"] is not None)
+    return [up, kp, sum(1 for f in files.values() if f["ev"] is not None)]
+
+def record(kind, stack=True, **kw):
+    ev = {"kind": kind, "by": cur(), "tick": tick(), **kw}
+    if stack:
+        ev["stack"], ev["locs"] = caller()
+    st = {}
+    for addr, i in threads.items():
+        if i in dead:
+            continue
+        try:
+            s = i32(addr + T_STATUS)
+            s = STATUS[s] if 0 <= s < 4 else "?"
+            if info[i]["tid"] is None:
+                t = i32(addr + T_TID)
+                if t > 0:
+                    info[i]["tid"] = t
+        except gdb.MemoryError:
+            continue
+        if last_st.get(i) != s:
+            st[i] = last_st[i] = s
+    if st:
+        ev["st"] = st
+    ev["cnt"] = counts()
+    events.append(ev)
+    if len(events) >= MAX_EVENTS:
+        truncate()
+    return len(events) - 1
+
+def truncate():
+    """상한에 닿으면 power_off/panic 훅만 남기고 끔. 누수 검사는 끝까지 못 따라가므로 하지 않음"""
+    global truncated
+    if truncated:
+        return
+    truncated = True
+    for h in HOOKS:
+        if h.fn not in (on_power_off, on_panic):
+            h.enabled = False
+
+# ---- 훅 ----
+def on_init_thread():
+    addr = arg(0)
+    i = len(info)
+    name = gdb.parse_and_eval("(char *)$rsi").string()
+    parent = cur() if (gdb.selected_frame().older().name() or "") == "thread_create" else None
+    threads[addr] = i
+    if parent is not None and parent in prog:   # fork한 자식은 부모 프로그램을 그대로 이어받음
+        prog[i] = prog[parent]
+    info.append({"name": name, "addr": hex(addr), "parent": parent, "tid": None})
+    if parent is not None:
+        record("create", target=i)
+
+def on_thread_exit():
+    i = cur()
+    if i is None:
+        return
+    pending_sys.pop(i, None)
+    record("exit", target=i)
+    dead.add(i)
+    last_st.pop(i, None)
+
+def on_run_task():
+    global test_started
+    test_started = True
+    record("run_task", cmd=read_str(u64(arg(0) + 8), 512))   # run_task(argv): argv[0]="run", argv[1]=명령줄
+
+prog = {}   # 스레드 -> 지금 실행 중인 프로그램 이름 (exec한 명령줄의 첫 단어. 스레드 이름은 exec해도 안 바뀔 수 있음)
+
+def on_process_exec():
+    cmd = read_str(arg(0), 512)
+    if cmd:
+        prog[cur()] = cmd.split()[0] if cmd.split() else cmd
+    record("exec", cmd=cmd)
+
+def prog_of(i):
+    return prog.get(i, info[i]["name"] if i is not None else None)
+
+def on_process_wait():
+    record("wait", child=gdb.parse_and_eval("(int)$rdi").__int__())
+
+def frame_regs(f):
+    r = {k: u64(f + o) for k, o in F.items()}
+    r["cs"] &= 0xffff   # uint16 필드 뒤의 패딩은 초기화 안 된 값일 수 있음
+    return r
+
+def on_syscall():
+    f = arg(0)
+    r = frame_regs(f)
+    nr = r["rax"]
+    name = SYSNAMES[nr] if nr < len(SYSNAMES) else None
+    args, strs, buf, bad = [], {}, None, []
+    sig = SIG.get(name, "iiiiii" if name is None else "")
+    for k, c in enumerate(sig):
+        v = r[AREGS[k]]
+        if c == "i":
+            v = struct.unpack("<i", struct.pack("<I", v & 0xffffffff))[0]
+        elif c == "u":
+            v &= 0xffffffff
+        args.append(v)
+        if c == "s":
+            strs[k] = read_str(v) if v < KERN_BASE else None
+            if strs[k] is None:
+                bad.append(k)
+        elif c == "b":
+            n = r[AREGS[k + 1]] & 0xffffffff
+            # 버퍼의 처음과 끝 바이트가 유저 영역에 매핑돼 있는지 (gdb는 커널 주소도 읽히므로 범위도 따로 봄)
+            if n and (v + n > KERN_BASE or read_bytes(v, 1) is None or read_bytes(v + n - 1, 1) is None):
+                bad.append(k)
+            if name == "write":   # write는 쓰려는 내용 앞부분을 같이 남김
+                b = read_bytes(v, min(n, 96)) if n else b""
+                buf = None if b is None else b.decode(errors="replace")
+    ev = record("sys", stack=False, nr=nr, name=name or ("#%d" % nr), args=args, strs=strs, bad=bad,
+                **({"buf": buf} if buf is not None else {}), rip=r["rip"], rsp=r["rsp"])
+    if events[ev]["by"] is not None:
+        pending_sys[events[ev]["by"]] = ev
+
+def on_sysret():
+    """syscall_entry에서 syscall_handler가 돌아온 직후. rsp가 intr_frame을 가리킴"""
+    i = cur()
+    ev = pending_sys.pop(i, None)
+    if ev is None:
+        return
+    rax = u64(int(gdb.parse_and_eval("$rsp")) + F["rax"])
+    ret = struct.unpack("<i", struct.pack("<I", rax & 0xffffffff))[0]
+    events[ev]["ret"] = ret
+    events[ev]["ret_raw"] = rax
+    record("sysret", stack=False, call=ev, ret=ret)
+
+def on_do_iret():
+    f = arg(0)
+    if u64(f + F["cs"]) & 0xffff != SEL_UCSEG:
+        return   # 커널 스레드 전환용 do_iret은 무시
+    r = frame_regs(f)
+    via = gdb.selected_frame().older().name() or "??"
+    rsp = r["rsp"]
+    stack = None
+    if USER_STACK - 0x10000 <= rsp < USER_STACK:
+        raw = read_bytes(rsp, min(USER_STACK - rsp, 4096))
+        stack = raw.hex() if raw is not None else None
+    i = cur()
+    ev = pending_sys.pop(i, None)   # exec이 성공하면 시스템 콜은 돌아오지 않고 여기로 옴
+    if ev is not None:
+        events[ev]["ret"] = None
+    record("uentry", via=via, regs=r, stack_hex=stack, prog=prog_of(i))
+
+def on_page_fault():
+    f = arg(0)
+    r = frame_regs(f)
+    try:
+        cr2 = int(gdb.parse_and_eval("(long)$cr2"))
+    except gdb.error:
+        cr2 = None
+    user = (r["cs"] & 3) == 3
+    ev = {"addr": cr2, "rip": r["rip"], "rsp": r["rsp"], "user": user, "err": r["error_code"]}
+    if not user:   # 커널 안에서 난 fault면 어느 줄인지 남김
+        sal = gdb.find_pc_line(r["rip"])
+        fn = gdb.execute("info symbol %d" % r["rip"], to_string=True).split(" in section")[0].strip()
+        ev["ksym"] = fn
+        if sal.symtab and sal.line:
+            p = os.path.relpath(sal.symtab.fullname(), ROOT)
+            if not p.startswith(".."):
+                sources.add(p)
+                ev["kloc"] = "%s:%d" % (p, sal.line)
+    record("fault", prog=prog_of(cur()), **ev)
+
+def on_kill():
+    """exception.c의 kill(f): page fault 말고 다른 예외(#GP, #UD, 0으로 나누기 등)로 프로세스를 죽일 때"""
+    f = arg(0)
+    r = frame_regs(f)
+    vec = u64(f + off("((struct intr_frame *)0)->vec_no"))
+    if vec == 14:
+        return   # page fault는 page_fault 훅에서 이미 기록함
+    record("fault", prog=prog_of(cur()), vec=vec, addr=None, rip=r["rip"], rsp=r["rsp"],
+           user=(r["cs"] & 3) == 3, err=r["error_code"])
+
+line_buf = {}
+
+def on_putchar():
+    i = cur()
+    c = int(gdb.parse_and_eval("(int)$rdi")) & 0xff
+    b = line_buf.setdefault(i, bytearray())
+    if c == 10:
+        record("out", stack=False, text=b.decode(errors="replace"))
+        line_buf[i] = bytearray()
+    else:
+        b.append(c)
+
+def on_panic():
+    s = lambda n: gdb.parse_and_eval("(char *)$" + ("rdi", "rsi", "rdx", "rcx")[n]).string()
+    msg = s(3)
+    if msg.startswith("assertion `%s'"):
+        try:
+            msg = msg.replace("%s", gdb.parse_and_eval("(char *)$r8").string(), 1)
+        except gdb.error:
+            pass
+    globals()["panicked"] = True
+    record("panic", file=s(0), line=int(gdb.parse_and_eval("(int)$rsi")), func=s(2), msg=msg)
+
+# 페이지: palloc_get_multiple(flags, cnt) 진입에서 인자를, 복귀 직전에서 결과 주소를 받음
+palloc_req = {}
+def on_palloc_in():
+    palloc_req[cur_addr()] = (arg(0), arg(1))
+
+def on_palloc_out():
+    req = palloc_req.pop(cur_addr(), None)
+    page = int(gdb.parse_and_eval("$rax"))
+    if req is None or not page:
+        return
+    names, locs = caller(skip=1, n=4)
+    # palloc_get_page/thread_create 같은 얇은 포장 함수는 건너뛰고 실제로 부른 쪽을 보여줌
+    pages[page] = {"n": req[1], "by": cur(), "user": bool(req[0] & 4), "stack": names, "locs": locs,
+                   "ev": len(events) if test_started else None}
+
+def on_pfree():
+    pages.pop(arg(0), None)
+
+def on_filesys_open():
+    pending_name[cur_addr()] = read_str(arg(0))
+
+def on_file_dup_in():
+    pending_dup[cur_addr()] = arg(0)
+
+def file_ret(how):
+    def f():
+        fp = int(gdb.parse_and_eval("$rax"))
+        k = cur_addr()
+        name = pending_name.pop(k, None) if how == "open" else None
+        src = pending_dup.pop(k, None) if how == "dup" else None
+        if not fp:
+            return
+        if src is not None and src in files:
+            name = files[src]["name"]
+        names, locs = caller(skip=1, n=4)
+        files[fp] = {"name": name, "by": cur(), "how": how, "stack": names, "locs": locs,
+                     "ev": len(events) if test_started else None}
+    return f
+
+def on_file_close():
+    files.pop(arg(0), None)
+
+def ret_addr(fn):
+    """복귀 직전 명령어(leave 또는 pop %rbp) 주소. trace.py와 같은 이유로 ret 자체에는 안 검"""
+    gdb.execute("set trust-readonly-sections on")
+    try:
+        out = gdb.execute("disassemble " + fn, to_string=True)
+    finally:
+        gdb.execute("set trust-readonly-sections off")
+    ls = out.splitlines()
+    r = [i for i, l in enumerate(ls) if re.search(r"\sret\s*$", l)]
+    if len(r) != 1 or r[0] == 0 or not re.search(r"\s(leave|pop\s+%rbp)\s*$", ls[r[0] - 1]):
+        return None
+    return ls[r[0] - 1].split()[0]
+
+def sysret_addr():
+    """syscall_entry 안에서 syscall_handler 호출 바로 다음 명령어 주소"""
+    gdb.execute("set trust-readonly-sections on")
+    try:
+        out = gdb.execute("x/80i syscall_entry", to_string=True)
+    finally:
+        gdb.execute("set trust-readonly-sections off")
+    ls = out.splitlines()
+    for k, l in enumerate(ls[:-1]):
+        if re.search(r"\scall\s", l):
+            return re.search(r"0x[0-9a-f]+", ls[k + 1]).group(0)
+    return None
+
+# ---- 유저 프로그램 심볼 (fault/진입 주소 -> 함수, 소스 줄) ----
+def user_syms():
+    """유저 주소를 프로그램 ELF로 풀이함. 스레드 이름 = 프로그램 이름 (KAIST 규칙: 이름은 명령줄 첫 단어)"""
+    bins = {}
+    for root, _, fs in os.walk("tests"):
+        for f in fs:
+            p = os.path.join(root, f)
+            if "." not in f and os.access(p, os.X_OK):
+                bins.setdefault(f, p)
+    want = {}
+    for ev in events:
+        if ev["kind"] == "fault" and ev.get("user"):
+            want.setdefault(ev["prog"], set()).add(ev["rip"])
+        elif ev["kind"] == "uentry":
+            want.setdefault(ev["prog"], set()).add(ev["regs"]["rip"])
+    out = {}
+    for name, addrs in want.items():
+        b = bins.get(name)
+        if not b:
+            continue
+        addrs = sorted(addrs)
+        try:
+            res = subprocess.run(["addr2line", "-f", "-e", b] + ["%#x" % a for a in addrs],
+                                 capture_output=True, text=True, timeout=20).stdout.splitlines()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        for k, a in enumerate(addrs):
+            fn, loc = (res[2 * k:2 * k + 2] + ["??", "??"])[:2]
+            m = re.match(r"(.*):(\d+)", loc)
+            entry = {"fn": fn}
+            if m and m.group(1) != "??":
+                p = os.path.relpath(os.path.realpath(os.path.join(os.getcwd(), m.group(1))), ROOT)
+                if not p.startswith("..") and os.path.exists(os.path.join(ROOT, p)):
+                    sources.add(p)
+                    entry["loc"] = "%s:%s" % (p, m.group(2))
+            out["%s@%x" % (name, a)] = entry
+    return out
+
+# ---- 저장 / 종료 (trace.py와 같은 흐름) ----
+saved = False
+panicked = False
+ended = False
+HOOKS = []
+
+def leftovers():
+    """테스트 시작 후 할당돼 끝날 때까지 안 풀린 페이지/파일. 죽은 스레드의 struct thread 페이지는
+    스케줄러가 다음 전환 때 지우므로(destruction_req) 누수가 아니라 pending으로 표시함"""
+    dead_pages = {int(info[i]["addr"], 16) for i in dead}
+    lp = [dict(p, addr=hex(a), pending=a in dead_pages) for a, p in pages.items() if p["ev"] is not None]
+    lf = [dict(f, addr=hex(a)) for a, f in files.items() if f["ev"] is not None]
+    return {"pages": lp, "files": lf}
+
+def save(status):
+    global saved
+    if saved:
+        return
+    saved = True
+    try:
+        syms = user_syms()
+    except Exception as ex:
+        gdb.write("trace warning: 유저 심볼 풀이 실패 (%r)\n" % ex)
+        syms = {}
+    src = {p: open(os.path.join(ROOT, p), errors="replace").read() for p in sorted(sources)}
+    text = json.dumps({"kind": "userprog", "threads": info, "events": events, "sources": src, "status": status,
+                       "syscalls": SYSNAMES, "sig": SIG, "truncated": truncated,
+                       "leaks": leftovers() if status == "ok" and not truncated else None,
+                       "usyms": syms})
+    with open(OUT + ".tmp", "w") as fp:
+        fp.write(text)
+    os.replace(OUT + ".tmp", OUT)
+    gdb.write("trace: %d events, %s -> %s\n" % (len(events), status, OUT))
+
+def on_power_off():
+    global ended
+    try:
+        for i, b in line_buf.items():   # 줄바꿈 없이 끝난 출력
+            if b and not truncated:
+                events.append({"kind": "out", "by": i, "tick": tick(), "text": b.decode(errors="replace"), "cnt": counts()})
+        record("end")
+    finally:
+        ended = True
+    return True
+
+def finish():
+    if saved:
+        return
+    for h in HOOKS:
+        h.enabled = False
+    if ended:
+        status = "panic" if panicked else "ok"
+    else:
+        status = "attach_failed" if not events else ("timeout" if timed_out and not interrupted else "aborted")
+        for _ in range(3):
+            if status == "attach_failed":
+                break
+            try:
+                if events[-1]["kind"] != status:
+                    record(status, secs=TIMEOUT)
+                break
+            except KeyboardInterrupt:
+                continue
+            except Exception as ex:
+                gdb.write("trace error at %s: %r\n" % (status, ex))
+                break
+    for _ in range(3):
+        try:
+            save(status)
+            break
+        except KeyboardInterrupt:
+            globals()["saved"] = False
+    if ended:
+        try:
+            gdb.execute("continue")
+            return
+        except BaseException:
+            pass
+    try:
+        gdb.execute("kill")
+    except BaseException:
+        pass
+
+timed_out = False
+interrupted = False
+stopped = False
+STOP_FILE = os.environ.get("TRACE_STOP")
+
+def _watch():
+    global timed_out, interrupted
+    import time
+    start = time.time()
+    while not saved and not stopped:
+        if STOP_FILE and os.path.exists(STOP_FILE):
+            interrupted = True
+        if time.time() - start >= TIMEOUT:
+            timed_out = True
+        if timed_out or interrupted:
+            time.sleep(5)
+            if not saved and not stopped:
+                os.kill(os.getpid(), signal.SIGINT)
+            return
+        time.sleep(0.5)
+
+threading.Thread(target=_watch, daemon=True).start()
+
+class Hook(gdb.Breakpoint):
+    def __init__(self, spec, fn):
+        super().__init__(spec if spec.startswith("*") else "*" + spec, internal=True)
+        self.fn = fn
+    def stop(self):
+        global stopped
+        if timed_out or interrupted:
+            stopped = True
+            return True
+        try:
+            if self.fn() is True:
+                stopped = True
+                return True
+        except KeyboardInterrupt:
+            stopped = True
+            return True
+        except Exception as ex:
+            gdb.write("trace error at %s: %r\n" % (self.location, ex))
+        return False
+
+specs = [("init_thread", on_init_thread), ("thread_exit", on_thread_exit), ("run_task", on_run_task),
+         ("process_exec", on_process_exec), ("process_wait", on_process_wait),
+         ("syscall_handler", on_syscall), ("do_iret", on_do_iret), ("page_fault", on_page_fault), ("kill", on_kill),
+         ("putchar_have_lock", on_putchar), ("debug_panic", on_panic), ("power_off", on_power_off),
+         ("palloc_get_multiple", on_palloc_in), ("palloc_free_multiple", on_pfree),
+         ("filesys_open", on_filesys_open), ("file_duplicate", on_file_dup_in), ("file_close", on_file_close)]
+try:
+    a = sysret_addr()
+    if a:
+        specs.append(("*" + a, on_sysret))
+    else:
+        gdb.write("trace warning: syscall_entry에서 복귀 지점을 못 찾아 시스템 콜 반환값은 기록 안 함\n")
+except gdb.error as ex:
+    gdb.write("trace warning: syscall_entry 분석 실패 (%s)\n" % ex)
+for fn, cb in (("palloc_get_multiple", on_palloc_out), ("file_open", file_ret("open")),
+               ("file_reopen", file_ret("reopen")), ("file_duplicate", file_ret("dup"))):
+    try:
+        r = ret_addr(fn)
+    except gdb.error:
+        r = None
+    if r is None:
+        gdb.write("trace warning: %s의 복귀 지점을 못 찾아 누수 검사에서 뺌\n" % fn)
+        continue
+    specs.append(("*" + r, cb))
+for spec, fn in specs:
+    try:
+        HOOKS.append(Hook(spec, fn))
+    except gdb.error:
+        gdb.write("trace warning: %s 함수가 없어 이 이벤트는 기록 안 함\n" % spec)

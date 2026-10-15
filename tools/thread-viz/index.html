@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pintos thread-viz</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #6b7385; --line: #dde1e8;
+  --pass: #2f9e5b; --fail: #c94a4a; --accent: #3b6fd8; --hl: #eef3ff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171d; --panel: #1c2028; --text: #e3e6ec; --muted: #8b93a5; --line: #2c323d;
+    --pass: #3fbf72; --fail: #e06666; --accent: #5b8cf0; --hl: #222a3a;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171d; --panel: #1c2028; --text: #e3e6ec; --muted: #8b93a5; --line: #2c323d;
+  --pass: #3fbf72; --fail: #e06666; --accent: #5b8cf0; --hl: #222a3a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, "Noto Sans KR", sans-serif; }
+.wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 20px; margin: 4px 0 2px; }
+.sub { color: var(--muted); margin: 0 0 14px; }
+.sub a { color: var(--accent); }
+.modes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+@media (max-width: 700px) { .modes { grid-template-columns: 1fr; } }
+.mode { text-align: left; border: 2px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text);
+  padding: 14px 16px; cursor: pointer; font: inherit; }
+.mode:hover { border-color: var(--accent); }
+.mode.on { border-color: var(--accent); background: var(--hl); }
+.mode b { font-size: 16px; display: block; }
+.mode span { color: var(--muted); font-size: 13px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.bar .grow { flex: 1; }
+button.btn, a.btn { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 8px;
+  padding: 6px 12px; cursor: pointer; text-decoration: none; display: inline-block; }
+button.btn:hover, a.btn:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button:disabled { opacity: .5; cursor: default; }
+button.danger { border-color: var(--fail); color: var(--fail); }
+label.chk { color: var(--muted); font-size: 13px; display: inline-flex; gap: 4px; align-items: center; }
+.group { margin-top: 10px; }
+.group h3 { font-size: 13px; color: var(--muted); margin: 0 0 6px; display: flex; gap: 10px; align-items: center; font-weight: 600; }
+.group h3 a { font-weight: 400; color: var(--accent); cursor: pointer; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 2px 10px; }
+.t { display: flex; gap: 6px; align-items: center; padding: 2px 4px; border-radius: 6px; cursor: pointer; font-size: 13px; min-width: 0; }
+.t:hover { background: var(--bg); }
+.t span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t i { font-style: normal; font-size: 11px; margin-left: auto; }
+.t i.PASS { color: var(--pass); } .t i.FAIL { color: var(--fail); }
+.prog .track { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; margin: 8px 0; }
+.prog .track i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+.done { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; }
+.done span { border: 1px solid var(--line); border-radius: 5px; padding: 0 6px; }
+pre { background: var(--bg); border-radius: 8px; padding: 8px; max-height: 260px; overflow: auto; white-space: pre-wrap; font-size: 12px; margin: 8px 0 0; }
+details summary { cursor: pointer; color: var(--muted); }
+.err { color: var(--fail); margin-left: 6px; }
+.note { color: var(--muted); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Pintos thread-viz</h1>
+  <p class="sub">테스트를 골라 실행하면 gdb로 추적해서 뷰어에 보여줌. 결과만 보려면 <a href="viewer.html">Project 1 뷰어</a> · <a href="uprog.html">Project 2 뷰어</a></p>
+  <div class="modes">
+    <button class="mode" data-m="threads"><b>Project 1 — Threads</b><span>alarm, priority, mlfqs. 스레드 상태, ready_list, lock/sema 대기, donation</span></button>
+    <button class="mode" data-m="userprog"><b>Project 2 — User Programs</b><span>args, syscall, fork/exec/wait, 파일. 유저 스택, 프로세스 트리, page fault, 누수</span></button>
+  </div>
+  <div class="panel" id="status" hidden></div>
+  <div class="panel">
+    <div class="bar">
+      <button class="btn primary" id="run-sel">선택한 테스트 실행</button>
+      <button class="btn" id="run-all">전체 실행</button>
+      <label class="chk" id="mlfqs-wrap"><input type="checkbox" id="mlfqs">전체 실행에 mlfqs 포함</label>
+      <span class="grow"></span>
+      <a class="btn" id="view">결과 보기</a>
+    </div>
+    <div class="note" id="hint"></div>
+    <div id="list"></div>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = t => String(t ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const store = (k, v) => { try { v === undefined ? (v = localStorage.getItem(k)) : localStorage.setItem(k, v); } catch (e) { v = null; } return v; };
+let TESTS = null, mode = store("tv-mode") === "userprog" ? "userprog" : "threads", busy = false, wasRunning = false;
+const sel = { threads: new Set(), userprog: new Set() };
+const PAGE = { threads: "viewer.html", userprog: "uprog.html" };
+const ALL_NOTE = {
+  threads: "전체 실행: alarm / priority / bench 전부 (mlfqs는 체크했을 때만). 첫 실행 2~3분",
+  userprog: "전체 실행: tests/userprog, filesys/base 전부 (multi-oom 제외). 몇 분 걸림",
+};
+
+function renderList() {
+  document.querySelectorAll(".mode").forEach(b => b.classList.toggle("on", b.dataset.m === mode));
+  $("mlfqs-wrap").hidden = mode !== "threads";
+  $("view").href = PAGE[mode];
+  $("hint").textContent = ALL_NOTE[mode];
+  if (!TESTS) return;
+  const gs = TESTS[mode] || [];
+  $("list").innerHTML = gs.length ? gs.map((g, gi) => `<div class="group"><h3>${esc(g.group)} <a data-g="${gi}" data-v="1">전체 선택</a><a data-g="${gi}" data-v="0">해제</a></h3>
+    <div class="grid">${g.tests.map(t => `<label class="t"><input type="checkbox" value="${esc(t.name)}"${sel[mode].has(t.name) ? " checked" : ""}>
+      <span>${esc(t.name)}</span>${t.result ? `<i class="${t.result === "PASS" ? "PASS" : "FAIL"}">${t.result === "PASS" ? "PASS" : "FAIL"}</i>` : ""}</label>`).join("")}</div></div>`).join("")
+    : '<p class="note">테스트를 못 찾음. pintos/ 폴더와 같은 높이에 tools/thread-viz/가 있는지 확인할 것</p>';
+  $("list").querySelectorAll("input").forEach(c => c.onchange = () => { c.checked ? sel[mode].add(c.value) : sel[mode].delete(c.value); updButtons(); });
+  $("list").querySelectorAll("h3 a").forEach(a => a.onclick = () => {
+    for (const t of gs[+a.dataset.g].tests) a.dataset.v === "1" ? sel[mode].add(t.name) : sel[mode].delete(t.name);
+    renderList();
+  });
+  updButtons();
+}
+function updButtons() {
+  const n = sel[mode].size;
+  $("run-sel").textContent = n ? `선택한 테스트 실행 (${n}개)` : "선택한 테스트 실행";
+  $("run-sel").disabled = busy || !n;
+  $("run-all").disabled = busy;
+}
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? { cache: "no-store" }
+    : { method: "POST", headers: { "Content-Type": "application/json", "X-Thread-Viz": "1" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+async function run(all) {
+  try {
+    await api("/api/run", { mode, tests: all ? [] : [...sel[mode]], mlfqs: all && mode === "threads" && $("mlfqs").checked });
+    store("tv-last", mode);
+    poll();
+  } catch (e) { showError(e.message); }
+}
+function showError(m) { $("status").hidden = false; $("status").innerHTML = `<b class="err">실행 못 함:</b> ${esc(m)}`; }
+
+// 진행 상황: run.sh가 쓰는 progress.json + 이 서버가 띄운 run.sh 출력 끝부분
+async function poll() {
+  let st, p = null;
+  try { st = await api("/api/status"); } catch (e) {
+    $("status").hidden = false; $("status").innerHTML = '<b class="err">서버에 연결 안 됨.</b> 터미널에서 tools/thread-viz/run.sh 를 다시 실행할 것'; return;
+  }
+  try { p = await (await fetch("progress.json", { cache: "no-store" })).json(); } catch (e) {}
+  busy = st.running; updButtons();
+  const el = $("status");
+  if (st.running) {
+    wasRunning = true;
+    el.hidden = false;
+    const pct = p && p.running && p.total ? Math.round(p.done / p.total * 100) : 0;
+    const ic = r => r.result === "PASS" ? "✅" : r.result === "FAIL" ? "❌" : "❔";
+    const page = PAGE[(p && p.mode) || store("tv-last") || mode];
+    el.innerHTML = `<div class="bar"><b>실행 중</b>${p && p.running ? ` ${p.done}/${p.total} (${pct}%) · 지금: <b>${esc(p.current)}</b>` : " (빌드/준비 중)"}
+      <span class="grow"></span><a class="btn" href="${page}">뷰어에서 실시간으로 보기</a>${st.mine ? '<button class="btn danger" id="stop">중지 (지금까지 저장)</button>' : ""}</div>
+      <div class="prog"><div class="track"><i style="width:${pct}%"></i></div></div>
+      ${p && p.results ? `<div class="done">${p.results.map(r => `<span>${ic(r)} ${esc(r.test)}</span>`).join("")}</div>` : ""}
+      ${st.mine ? "" : '<div class="note">터미널에서 돌린 실행임. 중지는 그 터미널에서 Ctrl-C</div>'}
+      ${st.log ? `<details${store("tv-log") === "1" ? " open" : ""} id="logd"><summary>run.sh 출력</summary><pre>${esc(st.log)}</pre></details>` : ""}`;
+    if ($("stop")) $("stop").onclick = () => api("/api/stop", {}).catch(e => showError(e.message));
+    if ($("logd")) $("logd").ontoggle = () => store("tv-log", $("logd").open ? "1" : "0");
+    setTimeout(poll, 1000);
+    return;
+  }
+  if (wasRunning || st.exit != null) {
+    // 끝남: 결과 표시를 갱신하고 뷰어로 가는 버튼을 보여줌
+    wasRunning = false;
+    TESTS = await api("/api/tests").catch(() => TESTS); renderList();
+    const page = PAGE[store("tv-last") || mode], failed = st.exit && st.exit !== 0 && st.exit !== 130;
+    el.hidden = false;
+    el.innerHTML = `<div class="bar"><b>${st.exit === 130 ? "중지됨 (지금까지 수집한 것 저장)" : failed ? '<span class="err">실행 실패</span> (아래 출력 확인. 빌드 에러 등)' : "완료"}</b>
+      <span class="grow"></span><a class="btn primary" href="${page}">결과 보기</a></div>
+      ${st.log ? `<details${failed ? " open" : ""}><summary>run.sh 출력</summary><pre>${esc(st.log)}</pre></details>` : ""}`;
+  }
+}
+
+document.querySelectorAll(".mode").forEach(b => b.onclick = () => { mode = b.dataset.m; store("tv-mode", mode); renderList(); });
+$("run-sel").onclick = () => run(false);
+$("run-all").onclick = () => run(true);
+renderList();
+api("/api/tests").then(t => { TESTS = t; renderList(); }).catch(() => {
+  $("list").innerHTML = '<p class="note">서버 API에 연결 안 됨. 이 페이지는 tools/thread-viz/run.sh 가 띄운 서버(http://localhost:8000)로 열어야 함</p>';
+});
+poll();
+</script>
+</body>
+</html>

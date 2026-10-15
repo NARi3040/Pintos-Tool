@@ -1,4 +1,6 @@
 data.js
 traces/
+udata.js
+utraces/
 progress.json
 bench.choice
