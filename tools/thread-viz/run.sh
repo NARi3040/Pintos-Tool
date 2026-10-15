@@ -45,6 +45,9 @@ start_server() {
     ok() { python3 -c 'import sys,urllib.request as u; u.urlopen(sys.argv[1], timeout=3)' "$api" 2>/dev/null; }
     # 예전 버전이 띄운 정적 서버(python3 -m http.server)는 런처 API가 없으므로 끄고 새로 띄움
     if ! ok && pgrep -f "http.server $PORT" >/dev/null 2>&1; then pkill -f "http.server $PORT"; sleep 0.5; fi
+    # 업데이트 전에 띄운 server.py도 새 API(디버거 등)가 없으므로 버전이 다르면 바꿔 띄움
+    local sv; sv=$(python3 -c 'import sys,json,urllib.request as u; print(json.load(u.urlopen(sys.argv[1], timeout=3)).get("version", ""))' "$api" 2>/dev/null) || sv=
+    if ok && [ "$sv" != "$(tr -d '[:space:]' < "$HERE/VERSION")" ]; then pkill -f "server.py $PORT"; sleep 0.5; fi
     if ! (exec 3<>/dev/tcp/127.0.0.1/"$PORT") 2>/dev/null; then
         # 서브셸에서 띄워 이 스크립트의 작업 목록에서 빼둠 (중단 시 정리할 때 서버까지 꺼지지 않게)
         (nohup python3 "$HERE/server.py" "$PORT" "${VIEW_BIND:-127.0.0.1}" >/dev/null 2>&1 &)
@@ -275,7 +278,7 @@ pcmd() {
 # 테스트 하나: (기록) -> 트레이스 -> .ck 채점. 결과 요약은 traces/<test>.summary에 남기고 메인 루프가 출력함
 run_one() {
     local t=$1 gport=$2 flags= ck to gto line res st rr=() gpid= P=()
-    rm -f "$OUTDIR/$t".{json,out,output,err,result,trace-output,grade-err,rr,summary,gdb}
+    rm -f "$OUTDIR/$t".{json,out,output,err,result,trace-output,grade-err,rr,summary,gdb,cmd,kernel} "$OUTDIR/$t".rr.d*.qcow2
     # mlfqs 테스트: make check처럼 -mlfqs 옵션을 붙이고, 오래 걸리므로 시간 초과를 길게 잡음
     if [ $MODE = userprog ]; then
         # 제한 시간은 Make.tests 값(-T) 그대로. 추적은 gdb 훅 때문에 느려서 두 배(최소 120초)로 잡음
@@ -299,6 +302,10 @@ run_one() {
     fi
     [ "$GRADE_MODE" = 1 ] && grade
     pcmd 0
+    # 디버거(debug.py)가 같은 기록을 다시 재생할 때 쓰는 명령줄 (NUL로 구분)
+    # 커널 코드(kernel.bin) 해시도 남겨서, 그 뒤 소스를 고쳐 다시 빌드했으면 디버거가 알아봄.
+    # make -B가 매번 다시 빌드해서 수정 시각으로는 못 보고, kernel.o는 어셈블리 파일의 디버그 정보가 빌드마다 달라서 못 씀
+    [ -n "${rr[*]:-}" ] && { printf '%s\0' "${P[@]}" > "$OUTDIR/$t.cmd"; sha1sum kernel.bin | cut -c1-40 > "$OUTDIR/$t.kernel"; }
     timeout $((to + 120)) env GDB_PORT="$gport" ${rr[@]+"${rr[@]}"} "${P[@]}" \
         > "$OUTDIR/$t.trace-output" 2> "$OUTDIR/$t.err" < /dev/null &
     local qpid=$!
@@ -306,7 +313,7 @@ run_one() {
     for _ in $(seq 120); do port_listening "$gport" && break; kill -0 $qpid 2>/dev/null || break; sleep 0.5; done
     # 멈춘 커널은 trace.py가 TRACE_TIMEOUT 뒤 멈추고, finish()가 그때까지의 트레이스를 저장함
     # gdb 출력은 .gdb에 남김 (트레이서가 에러로 죽으면 원인이 여기 있음)
-    TRACE_OUT="$OUTDIR/$t.json" TRACE_TIMEOUT="$to" TRACE_STOP="$STOPF" timeout $((to + 120)) gdb -q -batch kernel.o \
+    TRACE_OUT="$OUTDIR/$t.json" TRACE_ICOUNT="${rr[*]:+1}" TRACE_TIMEOUT="$to" TRACE_STOP="$STOPF" timeout $((to + 120)) gdb -q -batch kernel.o \
         -ex "target remote localhost:$gport" -x "$HERE/$TRACER" -ex continue -ex 'python finish()' > "$OUTDIR/$t.gdb" 2>&1
     line=$(grep -E '^trace' "$OUTDIR/$t.gdb")
     # gdb가 끝났는데 QEMU가 남아 있으면(연결 실패 등) 정리함
@@ -314,7 +321,7 @@ run_one() {
     case "$GRADE_MODE" in
         1) wait_or_stop $gpid ;;
         seq) grade; wait_or_stop $gpid ;;
-        replay) rm -f "$OUTDIR/$t.rr" ;;   # 기록은 재생 한 번에만 씀 (mlfqs는 수십 MB)
+        replay) ;;   # 기록(.rr, .rr.d*.qcow2)은 디버거가 다시 재생하도록 남겨 둠. 다음 실행 때 지워짐
         *) cp "$OUTDIR/$t.trace-output" "$OUTDIR/$t.output" ;;
     esac
     # 채점: make check와 같은 .ck 사용. 결과 파일은 traces/(utraces/)에만 써서 make check 결과를 덮어쓰지 않음

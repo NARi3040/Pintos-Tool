@@ -126,6 +126,16 @@ def counts():
     kp = sum(p["n"] for p in pages.values() if not p["user"] and p["ev"] is not None)
     return [up, kp, sum(1 for f in files.values() if f["ev"] is not None)]
 
+# 기록 재생 중이면 이벤트마다 QEMU의 실행 명령어 수(icount)를 남김. 디버거가 이 값으로 그 이벤트 시점에 정확히 멈춤
+ICOUNT = bool(os.environ.get("TRACE_ICOUNT"))
+
+def icount():
+    try:
+        m = re.search(r"instruction count = (\d+)", gdb.execute("monitor info replay", to_string=True))
+    except gdb.error:
+        return None
+    return int(m.group(1)) if m else None
+
 def record(kind, stack=True, **kw):
     ev = {"kind": kind, "by": cur(), "tick": tick(), **kw}
     if stack:
@@ -148,6 +158,8 @@ def record(kind, stack=True, **kw):
     if st:
         ev["st"] = st
     ev["cnt"] = counts()
+    if ICOUNT:
+        ev["ic"] = icount()
     events.append(ev)
     if len(events) >= MAX_EVENTS:
         truncate()

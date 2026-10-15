@@ -313,6 +313,16 @@ def in_intr():
 SYS_CALLERS = {"acquire_console", "release_console", "palloc_get_multiple",
                "palloc_free_multiple", "allocate_tid", "console_locked"}
 
+# 기록 재생 중이면 이벤트마다 QEMU의 실행 명령어 수(icount)를 남김. 디버거가 이 값으로 그 이벤트 시점에 정확히 멈춤
+ICOUNT = bool(os.environ.get("TRACE_ICOUNT"))
+
+def icount():
+    try:
+        m = re.search(r"instruction count = (\d+)", gdb.execute("monitor info replay", to_string=True))
+    except gdb.error:
+        return None
+    return int(m.group(1)) if m else None
+
 def record(kind, **kw):
     stack, locs = caller()
     ev = {"kind": kind, "by": tid_of(cur_addr()), "stack": stack, "locs": locs, **kw}
@@ -322,6 +332,8 @@ def record(kind, **kw):
     if it is not None:
         ev["intr"] = it
     ev["snap"], commit = snapshot()
+    if ICOUNT:
+        ev["ic"] = icount()
     events.append(ev)
     commit()
 
