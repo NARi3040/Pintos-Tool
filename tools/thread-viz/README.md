@@ -249,7 +249,9 @@ tools/thread-viz/run.sh args-multiple fork-once   # 원하는 테스트만. 이�
 | 프로세스 | `init_thread`, `process_exec`, `process_wait`, `thread_exit` | 부모-자식 관계, exec 명령줄 |
 | fault | `page_fault`, `kill` | 주소(cr2), rip, 유저/커널, 예외 종류. 유저 주소는 프로그램 ELF로 함수와 소스 줄을 찾음 |
 | 콘솔 출력 | `putchar_have_lock` | 어느 프로세스가 어떤 줄을 찍었는지 |
-| 페이지/파일 | `palloc_get_multiple`/`palloc_free_multiple`, `file_open`/`file_duplicate`/`file_reopen`/`file_close` | 누수 검사용. 이벤트로는 안 보이고 개수만 기록 |
+| 페이지/파일 | `palloc_get_multiple`/`palloc_free_multiple`, `file_open`/`file_duplicate`/`file_reopen`/`file_close` | 누수 검사용. 이벤트로는 안 보이고 개수만 기록. 같은 `struct file`을 두 번 `file_close`하면 이벤트로 남김 |
+| 커널 스택 | 시스템 콜 복귀 지점 | 그때 `struct thread`의 `magic`이 깨졌는지 |
+| 멈춘 스레드 | 시간 초과/중단 때 한 번 | 살아 있는 스레드마다 저장된 `tf`의 rbp 체인으로 호출 경로를 풂. `lock_acquire`에서 멈췄으면 그 lock과 `holder` |
 
 ### 화면 (`uprog.html`)
 
@@ -269,7 +271,13 @@ tools/thread-viz/run.sh args-multiple fork-once   # 원하는 테스트만. 이�
 | 잘못된 포인터 | 포인터 인자가 매핑 안 됐거나 커널 영역인데 시스템 콜이 정상 반환하면 오류. 커널 모드에서 유저 주소 fault는 참고로 표시 |
 | 종료 메시지 | 유저 프로세스가 끝날 때 `이름: exit(코드)`가 찍혔고 코드가 맞는지 |
 | fault | 유저 코드가 잘못된 주소를 건드렸으면 그 프로세스가 끝나야 함. 커널 코드 fault는 오류 |
-| 누수 | `power_off` 때 테스트 시작 후 할당한 페이지가 남았거나 연 파일이 안 닫혔으면 오류. 이미 끝난 스레드의 `struct thread` 페이지는 스케줄러가 나중에 지우므로 제외 |
+| 누수 | `power_off` 때 테스트 시작 후 할당한 페이지가 남았거나 연 파일이 안 닫혔으면 오류. 이미 끝난 스레드의 `struct thread` 페이지는 스케줄러가 나중에 지우므로 제외. exec한 프로세스가 안 끝난 채 꺼졌으면 누수 대신 그걸 오류로 보임 |
+| fd 반환값 | 시스템 콜 반환값으로 다시 만든 fd 표 기준. open이 이미 열린 fd나 0/1을 줌, 빈 이름 open이 성공, open이 fd를 줬는데 열린 파일이 없음, 안 열린 fd의 read/write가 -1이 아님, read/write가 요청 크기보다 큼, 콘솔 `write(1, …, n)`이 n이 아님, exec이 -1 말고 다른 값으로 돌아옴. close 뒤에도 파일이 열려 있거나 열린 fd의 read/write가 -1이면 참고 |
+| fork fd 복제 | 부모 fd가 가리키는 `struct file`을 자식이 `file_duplicate`/`file_reopen`하지 않았으면 참고 (같은 객체 공유) |
+| 파일 이중 닫기 | 이미 `file_close`한 `struct file`을 다시 닫으면 오류 |
+| 커널 스택 넘침 | 시스템 콜에서 돌아올 때 `magic`이 깨졌으면 오류 |
+| 시간 초과 | 멈춘 스레드별 호출 경로를 보여 줌. lock을 서로 기다리면 데드락, 이미 끝난 스레드가 쥔 lock을 기다리면 "lock을 놓지 않고 종료", 자기가 쥔 lock을 다시 잡으면 그것도 오류 |
+| panic | 흔한 ASSERT(`is_thread`, `bitmap_all`, `!intr_context ()`, `lock_held_by_current_thread`, `is_interior` 등)는 원인 후보를 같이 보여 줌 |
 
 검사는 힌트임. 판정은 `make check` 결과를 따를 것.
 
