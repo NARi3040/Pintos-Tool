@@ -106,7 +106,12 @@ def main():
         return
     print(f"[thread-viz] 새 버전 v{ver} 발견 (지금 v{cur}). 업데이트함")
     if body:
-        print("  변경 내용: " + body.splitlines()[0])
+        # 첫 줄이 요약, 나머지는 자세한 내용 (빈 줄은 건너뜀)
+        lines = body.splitlines()
+        print("  변경 내용: " + lines[0])
+        for l in lines[1:]:
+            if l.strip():
+                print("    " + l)
     data = download(f"{BASE}/thread-viz.tar.gz", 120)
     want = get(f"{BASE}/thread-viz.tar.gz.sha256", 15).decode().split()[0]
     if hashlib.sha256(data).hexdigest() != want:

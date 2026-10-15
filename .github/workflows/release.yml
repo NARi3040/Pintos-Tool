@@ -1,6 +1,6 @@
 # v<N> 태그를 push하면 그 태그 커밋을 checkout해서 thread-viz 릴리스를 만듦.
 # 로컬 작업 폴더 상태와 무관하게 배포 내용 = 태그 커밋이 되도록 러너에서만 릴리스함.
-# 릴리스 노트는 annotated 태그 메시지를 씀: git tag -a v12 -m "변경 내용 한 줄"
+# 릴리스 노트는 annotated 태그 메시지(제목 + 본문)를 씀: git tag -a v14 -F notes.txt (CHANGELOG.md의 그 버전 절)
 name: release
 on:
   push:
@@ -23,5 +23,6 @@ jobs:
         run: |
           # checkout은 annotated 태그를 lightweight로 받아서 메시지가 사라짐. 태그 객체를 다시 받음
           git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
-          notes="$(git tag -l --format='%(contents:subject)' "$GITHUB_REF_NAME")"
+          # 제목(첫 줄)은 구버전 update.py도 보여주는 한 줄, 본문은 GitHub 릴리스와 새 update.py가 보여줌
+          notes="$(git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$GITHUB_REF_NAME")"
           tools/release-thread-viz.sh "$notes"
