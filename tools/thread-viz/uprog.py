@@ -29,13 +29,17 @@ F = {r: off("((struct intr_frame *)0)->R." + r) for r in ("rax", "rdi", "rsi", "
 F.update({r: off("((struct intr_frame *)0)->" + r) for r in ("rip", "rsp", "cs", "error_code")})
 STATUS = ["RUNNING", "READY", "BLOCKED", "DYING"]
 
-# 시스템 콜 번호 -> 이름 (syscall-nr.h의 enum을 그대로 읽음)
-SYSNAMES = [f.name[4:].lower() for f in gdb.parse_and_eval("SYS_HALT").type.fields()]
 # 인자 형태: i=int, u=unsigned, s=문자열 포인터, b=버퍼 포인터(다음 인자가 크기), p=포인터
 SIG = {"halt": "", "exit": "i", "fork": "s", "exec": "s", "wait": "i", "create": "su", "remove": "s",
        "open": "s", "filesize": "i", "read": "ibu", "write": "ibu", "seek": "iu", "tell": "i", "close": "i",
        "mmap": "puiii", "munmap": "p", "chdir": "s", "mkdir": "s", "readdir": "ip", "isdir": "i",
        "inumber": "i", "symlink": "ss", "dup2": "ii", "mount": "sii", "umount": "s"}
+# 시스템 콜 번호 -> 이름 (syscall-nr.h의 enum을 그대로 읽음). 아직 syscall.c가 SYS_*를 안 쓰면(과제 시작 전)
+# 디버그 정보에 enum이 없으므로 syscall-nr.h 순서대로 적은 SIG의 키를 씀
+try:
+    SYSNAMES = [f.name[4:].lower() for f in gdb.parse_and_eval("SYS_HALT").type.fields()]
+except gdb.error:
+    SYSNAMES = list(SIG)
 AREGS = ("rdi", "rsi", "rdx", "r10", "r8", "r9")
 
 threads = {}   # 스레드 페이지 주소 -> 고유 id (같은 페이지 재사용 대비)

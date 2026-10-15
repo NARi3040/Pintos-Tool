@@ -322,14 +322,18 @@ function prepare(T) {
       case "end": {
         // halt는 프로세스가 살아 있는 채로 power_off를 부르므로 누수/미종료 검사를 안 함
         if (E.some(e => e.kind === "sys" && e.name === "halt")) break;
+        // exec까지 갔는데 안 끝난 프로세스가 있으면 그게 먼저임. 그 프로세스가 쥔 페이지/파일은 당연히 누수로 잡히므로 누수 검사는 생략
+        const alive = [...new Set([...Object.keys(lastExec), ...Object.keys(T.uentered)])].filter(j => exited[j] == null);
+        if (alive.length) {
+          add(ev, "err", `프로세스 ${alive.map(j => tname(+j)).join(", ")}가 끝나기 전에 커널이 꺼짐. process_wait가 자식이 끝날 때까지 기다리지 않고 반환했을 수 있음 (과제 시작 전 상태면 정상)`);
+          break;
+        }
         const L = T.leaks;
         if (L) {
           const pg = L.pages.filter(p => !p.pending), np = pg.reduce((a, p) => a + p.n, 0);
           if (np) add(ev, "err", `페이지 ${np}개가 해제되지 않음 (누수 검사 탭)`);
           if (L.files.length) add(ev, "err", `파일 ${L.files.length}개가 닫히지 않음 (누수 검사 탭)`);
         }
-        const alive = Object.keys(T.uentered).filter(j => exited[j] == null);
-        if (alive.length) add(ev, "warn", `종료하지 않은 유저 프로세스: ${alive.map(j => tname(+j)).join(", ")}`);
         break;
       }
     }
