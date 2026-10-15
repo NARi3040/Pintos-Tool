@@ -275,7 +275,7 @@ pcmd() {
 # 테스트 하나: (기록) -> 트레이스 -> .ck 채점. 결과 요약은 traces/<test>.summary에 남기고 메인 루프가 출력함
 run_one() {
     local t=$1 gport=$2 flags= ck to gto line res st rr=() gpid= P=()
-    rm -f "$OUTDIR/$t".{json,out,output,err,result,trace-output,grade-err,rr,summary}
+    rm -f "$OUTDIR/$t".{json,out,output,err,result,trace-output,grade-err,rr,summary,gdb}
     # mlfqs 테스트: make check처럼 -mlfqs 옵션을 붙이고, 오래 걸리므로 시간 초과를 길게 잡음
     if [ $MODE = userprog ]; then
         # 제한 시간은 Make.tests 값(-T) 그대로. 추적은 gdb 훅 때문에 느려서 두 배(최소 120초)로 잡음
@@ -305,8 +305,10 @@ run_one() {
     # QEMU가 gdb 포트를 열 때까지 기다림 (고정 1초 대기는 부하가 크면 모자람). QEMU가 이미 죽었으면 안 기다림
     for _ in $(seq 120); do port_listening "$gport" && break; kill -0 $qpid 2>/dev/null || break; sleep 0.5; done
     # 멈춘 커널은 trace.py가 TRACE_TIMEOUT 뒤 멈추고, finish()가 그때까지의 트레이스를 저장함
-    line=$(TRACE_OUT="$OUTDIR/$t.json" TRACE_TIMEOUT="$to" TRACE_STOP="$STOPF" timeout $((to + 120)) gdb -q -batch kernel.o \
-        -ex "target remote localhost:$gport" -x "$HERE/$TRACER" -ex continue -ex 'python finish()' 2>&1 | grep -E '^trace')
+    # gdb 출력은 .gdb에 남김 (트레이서가 에러로 죽으면 원인이 여기 있음)
+    TRACE_OUT="$OUTDIR/$t.json" TRACE_TIMEOUT="$to" TRACE_STOP="$STOPF" timeout $((to + 120)) gdb -q -batch kernel.o \
+        -ex "target remote localhost:$gport" -x "$HERE/$TRACER" -ex continue -ex 'python finish()' > "$OUTDIR/$t.gdb" 2>&1
+    line=$(grep -E '^trace' "$OUTDIR/$t.gdb")
     # gdb가 끝났는데 QEMU가 남아 있으면(연결 실패 등) 정리함
     kill_tree $qpid; wait $qpid 2>/dev/null
     case "$GRADE_MODE" in
@@ -357,6 +359,7 @@ while [ $next -lt ${#tests[@]} ] || [ ${#test_of[@]} -gt 0 ]; do
     grep '^trace' "$sum" | grep -v '^trace layout'
     echo "   $res"
     [ "$st" = attach_failed ] && echo "   gdb 연결 실패: 다음 실행 때 자동으로 다시 수집함"
+    [ "$st" = none ] && { echo "   트레이스 실패. gdb 출력 끝부분 (전체: $OUTDIR/$t.gdb):"; tail -4 "$OUTDIR/$t.gdb" | sed 's/^/     /'; }
     rm -f "$sum"
     DONE=$((DONE + 1))
     RESULTS="$RESULTS${RESULTS:+,}{\"test\":\"$t\",\"result\":\"$res\",\"status\":\"$st\"}"
