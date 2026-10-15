@@ -197,7 +197,8 @@ pkill -f "server.py 8000"
 | `<test>.json` | 트레이스 (이벤트, 스냅샷, 소스) |
 | `<test>.output` | 채점용 실행(기록 실행, 트레이스 없음)의 출력. 이걸로 채점함 |
 | `<test>.trace-output` | 트레이스 실행(재생)의 출력. 기록/재생이면 `.output`과 같아야 함 |
-| `<test>.rr` | QEMU 기록 파일. 재생이 끝나면 지움 |
+| `<test>.rr`, `<test>.rr.d*.qcow2`, `<test>.cmd` | QEMU 기록과 디스크(2초마다 스냅샷 포함), 재생 명령줄. 디버거가 씀. 다음 실행 때 지워짐. 테스트 하나에 수~수십 MB(Project 1 전체 약 150MB)라 공간이 모자라면 `rm -f tools/thread-viz/traces/*.rr* tools/thread-viz/utraces/*.rr*`로 지워도 됨 (트레이스는 그대로 보이고, 디버거만 다시 실행하라고 함) |
+| `<test>.gdb` | 트레이스를 모은 gdb의 출력. 트레이스가 없을 때 원인이 여기 있음 |
 | `<test>.result` | `.ck` 채점 결과 (PASS/FAIL과 차이) |
 | `<test>.err`, `.grade-err` | QEMU/pintos 에러 출력 |
 
@@ -280,6 +281,42 @@ tools/thread-viz/run.sh args-multiple fork-once   # 원하는 테스트만. 이�
 | panic | 흔한 ASSERT(`is_thread`, `bitmap_all`, `!intr_context ()`, `lock_held_by_current_thread`, `is_interior` 등)는 원인 후보를 같이 보여 줌 |
 
 검사는 힌트임. 판정은 `make check` 결과를 따를 것.
+
+## 디버거 (`debug.html`)
+
+뷰어(`viewer.html`, `uprog.html`)의 "이번 이벤트" 옆 **이 시점부터 디버그 ↗**를 누르면 열림. 채점한 실행의 기록을 QEMU로 다시 재생해서, 그 이벤트 시점에 gdb로 멈춤. 기록이라 몇 번을 돌려도 같은 실행이 나옴.
+
+| 동작 | 키 | 설명 |
+|---|---|---|
+| 계속 / 멈춤 | `c` | breakpoint나 테스트 끝(`power_off`)까지 |
+| 다음 줄 / 들어가기 / 나오기 / 명령어 하나 | `n` `s` `f` `i` | gdb의 next, step, finish, stepi |
+| 거꾸로: 이전 줄 / 바로 전 실행한 줄 / 호출한 곳 / 명령어 하나 / 거꾸로 계속 | `N` `S` `F` `I` `C` (Shift) | 뒤에서 설명 |
+| breakpoint | 줄 번호 클릭, 또는 `process_wait`, `syscall.c:120` 입력 | |
+| 식 보기 | `t->name`, `*lock`, `list_size` 같은 식 | 멈출 때마다 다시 계산함 |
+| 이벤트로 이동 | 오른쪽 이벤트 목록 클릭 | 그 이벤트 시점으로 앞/뒤로 감 |
+
+- 호출 스택, 지역 변수, 레지스터, 지금 CPU를 쓰는 스레드가 보임. Project 2에서 유저 모드로 넘어가면 테스트 프로그램 소스(`lib/user/entry.c` 등)가 보임. exec한 다른 프로그램은 심볼이 없어 `??`일 수 있음
+- 재생 중이라 값을 바꾸거나 커널 함수를 부르는 식(`thread_current ()` 등)은 막혀 있음. 바꾸면 기록과 어긋남
+- **외부 gdb로 열기**: QEMU를 지금 시점에 멈춘 채 두고, 터미널 gdb나 VS Code가 붙을 명령과 `launch.json` 설정을 보여 줌
+- 디버거는 gdb 식을 실행하므로 이 컴퓨터에서 `localhost` 주소로 연 페이지에서만 동작함 (`VIEW_BIND`로 다른 기기에서 연 뷰어에선 막힘)
+- 테스트를 다시 실행하면 기록이 바뀌어서 열려 있던 디버거는 닫힘
+
+### 거꾸로 실행
+
+기록할 때 래퍼가 2초마다 QEMU 스냅샷을 남김. 거꾸로 갈 때는 목표 직전 스냅샷에서 QEMU를 새로 띄우고 앞으로 다시 돌려 보며 찾음. 그래서 한 번에 Project 1은 1초 안팎, Project 2는 3~10초쯤 걸림 (디스크를 쓰는 구간은 스냅샷을 못 만들어서 더 김).
+
+- 이전 줄: 같은 함수 안에서 바로 전에 실행한 줄. 함수 첫 줄이면 호출한 곳으로
+- 바로 전 실행한 줄: 다른 함수 안이어도 됨 (방금 돌아온 함수의 마지막 줄 등)
+- 호출한 곳: 지금 함수를 부른 `call` 명령어
+- 거꾸로 계속: 지금보다 앞에서 마지막으로 걸린 breakpoint. 없으면 기록의 처음
+
+QEMU 자체의 `reverse-step`은 실행 중에 중간 스냅샷을 불러오다 멈춰서(QEMU 6.2, 10.2 모두) 쓰지 않음. 외부 gdb 모드는 시작 스냅샷만 남긴 사본으로 재생해서 gdb의 `reverse-*` 명령이 되지만, 매번 부팅부터 재생해서 느림. 외부 gdb에서 `monitor savevm`은 쓰지 말 것.
+
+### 기록이 없을 때
+
+Project 1은 기본이 기록/재생이라 바로 됨. Project 2는 기본이 `REPLAY=0`(기록 없이 실행)이라, 디버거를 열면 **기록 모드로 다시 실행** 버튼이 나옴. 누르면 그 테스트만 기록 모드로 다시 돌린 뒤 디버거가 열림. 터미널에서는 `REPLAY=1 tools/thread-viz/run.sh args-single`.
+
+기록한 뒤 커널 코드를 고쳐 다시 빌드했으면(kernel.bin 내용이 다르면) 기록과 코드가 달라서 다시 실행하라고 나옴.
 
 ## 주의사항
 
