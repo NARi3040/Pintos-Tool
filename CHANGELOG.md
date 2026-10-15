@@ -3,6 +3,18 @@
 릴리스 노트 원본임. 태그를 만들 때 해당 버전 절을 태그 메시지로 씀 (CONTRIBUTING.md 5절).
 첫 줄은 구버전 `update.py`가 업데이트할 때 보여주는 한 줄이므로, 사용자가 꼭 알아야 할 변화를 담음.
 
+## v16
+
+Project 2 자동 검사 추가: fd 반환값, 파일 이중 닫기, 커널 스택 넘침, 시간 초과 때 데드락/lock 주인 분석
+
+새 검사 (uprog.html ⚠)
+- fd 반환값: open이 이미 열린 fd를 줌, 빈 이름 open 성공, 열린 파일 없이 fd 반환, 안 열린 fd의 read/write가 -1이 아님, read/write가 요청보다 큼, 콘솔 write 반환값, 실패한 exec의 반환값
+- 같은 `struct file`을 두 번 `file_close` (해제된 메모리 사용)
+- 시스템 콜에서 돌아올 때 `struct thread`의 magic이 깨짐 (커널 스택 넘침)
+- 시간 초과/중단 때 멈춘 스레드마다 호출 경로를 보여 주고, lock 데드락, 끝난 스레드가 쥔 lock 대기, 같은 lock 재획득을 짚어 줌
+- fork 자식이 부모의 열린 파일을 `file_duplicate`하지 않은 것 같으면 참고로 표시
+- 흔한 panic ASSERT에 원인 후보를 붙임
+
 ## v15
 
 Project 2를 과제 시작 전 코드에서 돌리면 트레이스가 하나도 안 남던 문제 수정
