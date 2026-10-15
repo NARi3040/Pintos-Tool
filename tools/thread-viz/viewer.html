@@ -54,6 +54,7 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; pa
 .tabs button.alert::after { content: " ●"; color: var(--dying); }
 .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 8px; }
 #desc { font-size: 15px; }
+#desc a.dbg { font-size: 12.5px; margin-left: 6px; white-space: nowrap; }
 #desc .kind { display: inline-block; padding: 1px 8px; border-radius: 4px; background: var(--accent); color: #fff; font-size: 12px; margin-right: 6px; }
 #stack { color: var(--muted); margin-top: 4px; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; min-height: 62px; }
@@ -270,7 +271,9 @@ function render() {
   const ev = view[idx], s = after(ev), b = ev.snap;
   $("slider").value = idx;
   $("pos").textContent = `${idx + 1}/${view.length} · tick ${s.tick ?? "?"}`;
-  $("desc").innerHTML = `<span class="kind">${ev.kind}</span>${describe(ev)}`;
+  $("desc").innerHTML = `<span class="kind">${ev.kind}</span>${describe(ev)}` +
+    // 기록 재생으로 이 이벤트 시점에 gdb를 멈춤 (debug.html). icount가 없으면(기록 없이 돈 실행) 디버거 쪽에서 다시 실행을 제안함
+    ` <a class="dbg" target="_blank" href="debug.html?mode=threads&test=${encodeURIComponent(T.name)}${ev.ic != null ? "&ev=" + ev.i : ""}">${ev.ic != null ? "이 시점부터 디버그 ↗" : "디버거 ↗"}</a>`;
   const locs = ev.locs || [];
   if (srcSel == null || srcSel.ev !== ev.i) srcSel = { ev: ev.i, k: locs.findIndex(l => l) };
   $("stack").innerHTML = "call stack: " + ev.stack.map((f, k) => locs[k]
@@ -821,7 +824,7 @@ function rebuild(keep) {
 }
 
 function load(name) {
-  T = TR[name]; stop(); srcSel = null; FP = T.fp_scale || 1 << 14;
+  T = TR[name]; T.name = name; stop(); srcSel = null; FP = T.fp_scale || 1 << 14;
   check(T);
   $("met").innerHTML = metrics(T);
   mlBuild();

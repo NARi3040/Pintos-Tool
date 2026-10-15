@@ -47,6 +47,7 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; pa
 .panel.now { border-left: 4px solid var(--accent); }
 .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 8px; }
 #desc { font-size: 15px; overflow-wrap: anywhere; }
+#desc a.dbg { font-size: 12.5px; margin-left: 6px; white-space: nowrap; }
 #desc .kind { display: inline-block; padding: 1px 8px; border-radius: 4px; background: var(--accent); color: #fff; font-size: 12px; margin-right: 6px; }
 #stack { color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
 #stack a { color: var(--accent); cursor: pointer; }
@@ -557,7 +558,9 @@ function render() {
   const ev = view[idx];
   $("slider").value = idx;
   $("pos").textContent = `${idx + 1}/${view.length} · tick ${ev.tick ?? "?"}`;
-  $("desc").innerHTML = `<span class="kind">${ev.kind}</span>${describe(ev)}`;
+  $("desc").innerHTML = `<span class="kind">${ev.kind}</span>${describe(ev)}` +
+    // 기록 재생으로 이 이벤트 시점에 gdb를 멈춤 (debug.html). icount가 없으면(기록 없이 돈 실행) 디버거 쪽에서 다시 실행을 제안함
+    ` <a class="dbg" target="_blank" href="debug.html?mode=userprog&test=${encodeURIComponent(T.name)}${ev.ic != null ? "&ev=" + ev.i : ""}">${ev.ic != null ? "이 시점부터 디버그 ↗" : "디버거 ↗"}</a>`;
   // call stack: 커널 위치 + (있으면) 유저 코드 위치
   const frames = (ev.stack || []).map((f, k) => [f, (ev.locs || [])[k]]);
   const us = ev.kind === "fault" && ev.user ? T.usyms[`${ev.prog}@${ev.rip.toString(16)}`]
@@ -810,7 +813,7 @@ function resultOf(T) {
   return !T.result ? ["none", "채점 없음" + st] : T.result.pass ? ["pass", "PASS" + st] : ["fail", "FAIL" + st];
 }
 function load(name) {
-  T = TR[name]; stop(); srcSel = null;
+  T = TR[name]; T.name = name; stop(); srcSel = null;
   prepare(T);
   const [cls, txt] = resultOf(T);
   $("res").className = "res " + cls; $("res").textContent = txt + (T.truncated ? " · 앞부분만 기록" : "");
