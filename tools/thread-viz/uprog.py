@@ -44,6 +44,57 @@ except gdb.error:
     SYSNAMES = list(SIG)
 AREGS = ("rdi", "rsi", "rdx", "r10", "r8", "r9")
 
+# ---- 스케줄러 리스트 (trace.py와 같은 자동 감지) ----
+# Project 1 코드를 이어 쓰므로 priority, base priority, ready_list, sleep_list를 이벤트마다 남김
+TFIELDS = [(f.name, str(f.type.strip_typedefs()).strip(), f.bitpos // 8) for f in gdb.lookup_type("struct thread").fields()]
+
+def field_off(type_, pattern, exclude=()):
+    """타입이 맞고 이름이 pattern에 맞는 struct thread 필드의 오프셋. 없으면 None."""
+    return next((o for n, t, o in TFIELDS if t == type_ and n not in exclude and re.search(pattern, n, re.I)), None)
+
+T_PRI = off("((struct thread *)0)->priority")
+T_ELEM = off("((struct thread *)0)->elem")
+T_BASE = field_off("int", r"(init|orig|base|real|old|saved|default|own).*pri|pri.*(init|orig|base|real|old|saved)")
+T_SLEEP_ELEM = field_off("struct list_elem", r"sleep|alarm|timer", exclude=("elem",))
+if T_SLEEP_ELEM is None:
+    T_SLEEP_ELEM = T_ELEM
+LIST_TAIL = off("((struct list *)0)->tail")
+
+def find_list(pattern, skip=r"^$"):
+    """이름이 pattern에 맞는 전역 struct list 변수 -> (리스트 헤드 주소 목록, 이름). 배열(MLFQS 큐)이면 높은 인덱스부터."""
+    out = gdb.execute('info variables -q -n -t "struct list"', to_string=True)
+    cur_f = None
+    for line in out.splitlines():
+        m = re.match(r"File (.+):$", line)
+        if m:
+            cur_f = os.path.basename(m.group(1))
+            continue
+        m = re.search(r"struct list (\w+)(?:\[(\d+)\])?;$", line)
+        if m and cur_f and re.search(pattern, m.group(1), re.I) and not re.search(skip, m.group(1), re.I):
+            head = int(gdb.parse_and_eval("(long)&'%s'::%s" % (cur_f, m.group(1))))
+            n = int(m.group(2)) if m.group(2) else None
+            return ([head + k * 2 * LIST_TAIL for k in range(n - 1, -1, -1)] if n else [head]), m.group(1)
+    return None, None
+
+READY_HEADS, READY_NAME = find_list(r"^ready")
+if READY_HEADS is None:
+    READY_HEADS, READY_NAME = find_list(r"queue|mlfq")
+SLEEP_HEADS, SLEEP_NAME = find_list(r"sleep|alarm|wait|block", skip=r"^ready")
+
+def walk(heads, elem_off):
+    """리스트 원소 -> 스레드 id 목록 (모르는 원소는 None). 리스트가 망가졌으면 None."""
+    out = []
+    for head in heads or []:
+        e, tail = u64(head + 8), head + LIST_TAIL
+        while e != tail:
+            if not e or len(out) >= 200:
+                return None
+            out.append(threads.get(e - elem_off))
+            e = u64(e + 8)
+    return out
+
+last_lists = {}
+
 threads = {}   # 스레드 페이지 주소 -> 고유 id (같은 페이지 재사용 대비)
 info = []      # id -> {name, addr, parent, tid}
 dead = set()
@@ -119,6 +170,7 @@ dupsrc = {}         # 스레드 -> [원본, 복제본] struct file 주소 쌍 (f
 last_open = {}      # 스레드 -> 진행 중인 시스템 콜 안에서 마지막으로 file_open한 struct file 주소
 smashed = set()     # magic이 깨진 걸 이미 기록한 스레드
 last_st = {}
+last_pri = {}
 
 def counts():
     """테스트 시작 후 할당돼 아직 안 풀린 페이지 수 (유저 풀, 커널 풀), 열린 파일 수"""
@@ -140,7 +192,7 @@ def record(kind, stack=True, **kw):
     ev = {"kind": kind, "by": cur(), "tick": tick(), **kw}
     if stack:
         ev["stack"], ev["locs"] = caller()
-    st = {}
+    st, pri = {}, {}
     for addr, i in threads.items():
         if i in dead:
             continue
@@ -155,8 +207,24 @@ def record(kind, stack=True, **kw):
             continue
         if last_st.get(i) != s:
             st[i] = last_st[i] = s
+        try:
+            p = i32(addr + T_PRI)
+            p = [p, i32(addr + T_BASE)] if T_BASE is not None else [p, p]
+        except gdb.MemoryError:
+            continue
+        if last_pri.get(i) != p:
+            pri[i] = last_pri[i] = p
     if st:
         ev["st"] = st
+    if pri:
+        ev["pri"] = pri   # 스레드 -> [priority, base priority]. 바뀐 것만
+    for key, heads, eo in (("rl", READY_HEADS, T_ELEM), ("sl", SLEEP_HEADS, T_SLEEP_ELEM)):
+        try:
+            v = walk(heads, eo)
+        except gdb.MemoryError:
+            v = None
+        if v is not None and last_lists.get(key) != v:   # 직전과 같거나 망가졌으면 생략
+            ev[key] = last_lists[key] = v
     ev["cnt"] = counts()
     if ICOUNT:
         ev["ic"] = icount()
@@ -196,6 +264,7 @@ def on_thread_exit():
     record("exit", target=i)
     dead.add(i)
     last_st.pop(i, None)
+    last_pri.pop(i, None)
 
 def on_run_task():
     global test_started
@@ -553,7 +622,8 @@ def save(status):
         syms = {}
     src = {p: open(os.path.join(ROOT, p), errors="replace").read() for p in sorted(sources)}
     text = json.dumps({"kind": "userprog", "threads": info, "events": events, "sources": src, "status": status,
-                       "syscalls": SYSNAMES, "sig": SIG, "truncated": truncated,
+                       "syscalls": SYSNAMES,
+                       "lists": {"ready": READY_NAME, "sleep": SLEEP_NAME, "base": T_BASE is not None}, "sig": SIG, "truncated": truncated,
                        "leaks": leftovers() if status == "ok" and not truncated else None,
                        "usyms": syms})
     with open(OUT + ".tmp", "w") as fp:

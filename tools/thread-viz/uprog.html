@@ -71,6 +71,7 @@ details summary { cursor: pointer; color: var(--muted); }
 .node.gone { opacity: .55; border-style: dashed; }
 .node .nm { font-weight: 600; }
 .node .sub { font-size: 12px; color: var(--muted); }
+#sched { margin-top: 10px; font-size: 12px; } #sched .sub { color: var(--muted); }
 .st { font-weight: 600; font-size: 12px; }
 .st-RUNNING { color: var(--run); } .st-READY { color: var(--ready); } .st-BLOCKED { color: var(--blocked); } .st-DYING, .st-EXIT { color: var(--dying); }
 /* 타임라인 */
@@ -148,7 +149,8 @@ pre.box { max-height: 320px; overflow: auto; margin: 0; white-space: pre-wrap; b
     <div class="panel now"><h2>이번 이벤트</h2><div id="desc"></div><div id="stack" class="mono"></div><div id="viol"></div>
       <details id="src-panel"><summary>소스 (call stack 항목 클릭하면 바뀜)</summary>
         <div id="src-title" class="mono"></div><div id="src" class="mono"></div></details></div>
-    <div class="panel"><h2>프로세스 트리 — 이벤트 직후 (부모 → 자식)</h2><ul class="tree" id="tree"></ul></div>
+    <div class="panel"><h2>프로세스 트리와 스케줄러 리스트 — 이벤트 직후</h2><ul class="tree" id="tree"></ul>
+      <div class="mono" id="sched"></div></div>
     <div class="panel"><h2>타임라인 (가로축 = 이벤트 순서, 클릭하면 이동)</h2>
       <div class="cvwrap"><canvas id="tl"></canvas></div>
       <div class="legend"><span><i style="background:var(--run)"></i>RUNNING</span><span><i style="background:var(--ready)"></i>READY</span>
@@ -432,10 +434,13 @@ function fdCheck(ev, call, f, add, solo, usedDup2) {
 
 // i번째 이벤트 직후의 상태: 스레드 상태, 진행 중인 시스템 콜, fd 테이블
 function stateAt(i) {
-  const st = {}, pend = {}, fds = {}, prog = {}, gone = {}, kwait = {};
+  const st = {}, pend = {}, fds = {}, prog = {}, gone = {}, kwait = {}, pri = {}, lists = {};
   for (let k = 0; k <= i + 1 && k < T.events.length; k++) {
     const e = T.events[k];
     if (e.st) Object.assign(st, e.st);   // 상태 스냅샷은 이벤트 진입 시점이라 다음 이벤트 것이 "직후"임
+    if (e.pri) Object.assign(pri, e.pri);
+    if (e.rl) lists.rl = e.rl;
+    if (e.sl) lists.sl = e.sl;
     if (k > i) break;
     // 커널 안의 process_wait(main이 initd를 기다리는 것 등): 그 스레드의 다음 이벤트까지 대기 중으로 봄
     if (e.kind === "wait") kwait[e.by] = e.child; else if (e.by != null) delete kwait[e.by];
@@ -455,7 +460,7 @@ function stateAt(i) {
     if (e.kind === "uentry") delete pend[e.by];
     if (e.kind === "exit") { gone[e.target] = k; delete pend[e.target]; }
   }
-  return { st, pend, fds, prog, gone, kwait };
+  return { st, pend, fds, prog, gone, kwait, pri, lists };
 }
 
 // ---- 이벤트 설명 ----
@@ -612,9 +617,19 @@ function renderTree(ev, S) {
     const prog = S.prog[j] && S.prog[j] !== t.name ? ` <span class="sub">exec: ${esc(S.prog[j])}</span>` : "";
     const sub = (kids[j] || []).map(node).join("");
     return `<li><span class="node${ev.by === j || ev.target === j ? " me" : ""}${gone ? " gone" : ""}" style="--c:${color(j)}">
-      <span class="nm">${tlabel(j)}</span>${prog}<span class="st st-${st}">${gone ? "" : st}</span><span class="sub">${doing}</span></span>${sub ? `<ul>${sub}</ul>` : ""}</li>`;
+      <span class="nm">${tlabel(j)}</span>${prog}<span class="st st-${st}">${gone ? "" : st}</span>${gone ? "" : priText(S, j)}<span class="sub">${doing}</span></span>${sub ? `<ul>${sub}</ul>` : ""}</li>`;
   };
   $("tree").innerHTML = (kids.root || []).map(node).join("") || '<li class="note">아직 프로세스 없음</li>';
+  // ready_list(앞이 다음에 돌 스레드), sleep_list 순서와 우선순위
+  const L = T.lists, item = j => j == null ? "?" : `<span style="color:${color(j)}">${tlabel(j)}</span>${priText(S, j)}`;
+  $("sched").innerHTML = !L ? "" : [["rl", L.ready], ["sl", L.sleep]].filter(([, n]) => n).map(([k, n]) =>
+    `<div><b>${esc(n)}</b>: ${S.lists[k] ? S.lists[k].map(item).join(" → ") || "(비어 있음)" : "(기록 없음)"}</div>`).join("") ||
+    '<div class="note">ready_list / sleep_list 전역 변수를 못 찾음</div>';
+}
+function priText(S, j) {
+  const p = S.pri[j];
+  if (!p) return "";
+  return ` <span class="sub mono">pri ${p[0]}${p[1] !== p[0] ? ` (base ${p[1]})` : ""}</span>`;
 }
 
 // 유저 스택 탭: 지금 이벤트 또는 그 이전 마지막 유저 진입(process_exec)의 스택
