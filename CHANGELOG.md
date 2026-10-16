@@ -3,6 +3,19 @@
 릴리스 노트 원본임. 태그를 만들 때 해당 버전 절을 태그 메시지로 씀 (CONTRIBUTING.md 5절).
 첫 줄은 구버전 `update.py`가 업데이트할 때 보여주는 한 줄이므로, 사용자가 꼭 알아야 할 변화를 담음.
 
+## v17
+
+Project 2 뷰어에서도 ready_list/sleep_list 순서, 우선순위, lock/semaphore 대기열을 볼 수 있음
+
+새 기능 (uprog.html)
+- 프로세스 트리에 스레드마다 priority (base priority가 다르면 같이)
+- 이벤트 직후 `ready_list`, `sleep_list` 순서. 이름과 필드는 Project 1 뷰어처럼 자동 감지
+- 주인이 있는 lock, 기다리는 스레드가 있는 lock/semaphore와 대기 순서
+- 위쪽 "우선순위·대기열 보기"로 끄고 켬
+
+고친 것
+- 트레이스 중 원본 `syscall-entry.S`의 `popq %rsp`~`sysretq` 틈에 타이머가 걸려 커널이 유저 스택에서 죽으면(syn-read 등에서 가끔), 기록 없이 돈 실행이면 트레이스를 한 번 더 돌림. 뷰어도 이 panic이면 원인 후보로 보여 줌
+
 ## v16
 
 디버거 추가: 뷰어에서 이벤트를 고르면 그 시점에 gdb로 멈추고, 한 줄씩/거꾸로 실행할 수 있음. Project 2 자동 검사도 늘어남
