@@ -91,6 +91,8 @@ details summary { cursor: pointer; color: var(--muted); }
 .card .wt { font-size: 11.5px; color: var(--muted); }
 #sync { margin-top: 10px; }
 .node .pri { font-size: 12px; color: var(--muted); }
+.lockarrow { font-size: 12px; color: var(--muted); align-self: center; text-align: center; }
+.lockarrow b { display: block; color: var(--text); }
 .st { font-weight: 600; font-size: 12px; }
 .st-RUNNING { color: var(--run); } .st-READY { color: var(--ready); } .st-BLOCKED { color: var(--blocked); } .st-DYING, .st-EXIT { color: var(--dying); }
 /* 타임라인 */
@@ -171,7 +173,8 @@ pre.box { max-height: 320px; overflow: auto; margin: 0; white-space: pre-wrap; b
         <div id="src-title" class="mono"></div><div id="src" class="mono"></div></details></div>
     <div class="panel"><h2>프로세스 트리 — 이벤트 직후 (부모 → 자식)</h2><ul class="tree" id="tree"></ul></div>
     <div class="panel" id="sched-panel"><h2>스케줄러 — 이벤트 직후 (ready_list / sleep_list / lock·semaphore 대기, 앞 → 뒤)</h2>
-      <div id="lanes"></div><div id="sync"></div></div>
+      <div id="lanes"></div><div id="sync"></div>
+      <h2 style="margin-top:12px">donation — 대기 체인 (lock을 기다림 → 주인) / donations 리스트</h2><div id="don"></div></div>
     <div class="panel"><h2>타임라인 (가로축 = 이벤트 순서, 클릭하면 이동)</h2>
       <div class="cvwrap"><canvas id="tl"></canvas></div>
       <div class="legend"><span><i style="background:var(--run)"></i>RUNNING</span><span><i style="background:var(--ready)"></i>READY</span>
@@ -684,6 +687,28 @@ function renderSched(ev, S) {
     return `<div class="sync${changed ? " changed" : ""}"><div><b>${esc(id)}</b><span class="kd">${o.h !== undefined ? "lock" : "sema"}</span><div class="meta">${meta}</div></div>` +
       `<div class="row">${list(o.w, "대기자 없음")}</div></div>`;
   }).join("") || '<span class="empty">잡힌 lock / 기다리는 sema 없음</span>';
+
+  // 대기 체인: lock 대기열의 스레드 -> 그 lock의 주인. 아무도 안 기다리는 스레드(leaf)에서 시작해 주인을 따라감
+  const next = {};
+  for (const [id, o] of Object.entries(S.sync)) if (o && o.h != null) for (const w of o.w) next[w] = [o.h, id];
+  const waitedBy = new Set(Object.values(next).map(([h]) => h));
+  const chains = Object.keys(next).map(Number).filter(k => !waitedBy.has(k)).map(k => {
+    let out = card(k), cur = k;
+    const seen = new Set([k]);
+    while (next[cur] && !seen.has(next[cur][0])) {
+      const [h, id] = next[cur];
+      out += `<span class="lockarrow">기다림<b>${esc(id)}</b>→</span>` + card(h);
+      seen.add(h); cur = h;
+    }
+    if (next[cur]) out += `<span class="lockarrow">기다림<b>${esc(next[cur][1])}</b>→</span><span class="don">${tlabel(next[cur][0])} (순환: 데드락)</span>`;
+    return `<div class="row" style="min-height:0;margin-bottom:8px">${out}</div>`;
+  });
+  // 모두가 서로를 기다리는 순환은 leaf가 없어서 위에서 안 잡힘
+  if (!chains.length && Object.keys(next).length) chains.push('<div class="don">lock 대기가 순환함 (데드락)</div>');
+  const dons = !L.dons ? [] : ids.filter(j => S.pri[j] && S.pri[j][2] && S.pri[j][2].length).map(j =>
+    `<div class="sync"><div><b>${tlabel(j)}</b><div class="meta">donations · pri ${S.pri[j][0]} / base ${S.pri[j][1]}</div></div><div class="row">${list(S.pri[j][2], "", false)}</div></div>`);
+  $("don").innerHTML = (chains.length ? chains.join("") : '<span class="empty">lock을 기다리는 스레드 없음</span>') +
+    (dons.length ? `<div style="margin-top:8px">${dons.join("")}</div>` : L.dons !== false ? "" : '<div class="empty">struct thread에서 donations 리스트를 못 찾음</div>');
 }
 function priText(S, j) {
   const p = S.pri[j];
