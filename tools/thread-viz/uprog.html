@@ -131,6 +131,7 @@ pre.box { max-height: 320px; overflow: auto; margin: 0; white-space: pre-wrap; b
     <span class="grow"></span>
     <label class="chk"><input type="checkbox" id="f-boot" checked>부팅 출력 숨김</label>
     <label class="chk"><input type="checkbox" id="f-out">콘솔 출력 숨김</label>
+    <label class="chk"><input type="checkbox" id="f-sched" checked>우선순위·대기열 보기</label>
     <a href="viewer.html">Project 1 뷰어</a>
   </div>
   <div class="hrow">
@@ -149,7 +150,7 @@ pre.box { max-height: 320px; overflow: auto; margin: 0; white-space: pre-wrap; b
     <div class="panel now"><h2>이번 이벤트</h2><div id="desc"></div><div id="stack" class="mono"></div><div id="viol"></div>
       <details id="src-panel"><summary>소스 (call stack 항목 클릭하면 바뀜)</summary>
         <div id="src-title" class="mono"></div><div id="src" class="mono"></div></details></div>
-    <div class="panel"><h2>프로세스 트리와 스케줄러 리스트 — 이벤트 직후</h2><ul class="tree" id="tree"></ul>
+    <div class="panel"><h2>프로세스 트리와 우선순위·대기열 — 이벤트 직후</h2><ul class="tree" id="tree"></ul>
       <div class="mono" id="sched"></div></div>
     <div class="panel"><h2>타임라인 (가로축 = 이벤트 순서, 클릭하면 이동)</h2>
       <div class="cvwrap"><canvas id="tl"></canvas></div>
@@ -281,7 +282,11 @@ function prepare(T) {
       case "panic": {
         add(ev, "err", `Kernel PANIC: ${esc(ev.msg)} (${esc(ev.file)}:${ev.line})`);
         const hint = PANIC_HINTS.find(([k]) => (ev.msg || "").includes(k));
-        if (hint) add(ev, "warn", hint[1]);
+        // 커널이 유저 스택 위에서 돎: 원본 syscall-entry.S는 popq %rsp와 sysretq 사이에 인터럽트가 켜져 있어서
+        // 그 틈에 타이머가 걸리면 이렇게 됨. 드물고 트레이서가 타이밍을 바꿔 더 자주 날 수 있음
+        if (ev.rsp != null && ev.rsp < 0x8004000000)
+          add(ev, "warn", `커널이 유저 스택(rsp ${ev.rsp.toString(16)}) 위에서 돌다 죽음. 원본 <code>userprog/syscall-entry.S</code>의 <code>popq %rsp</code>와 <code>sysretq</code> 사이에 타이머 인터럽트가 걸리는 경쟁 조건일 가능성이 있음 (트레이스 중에 더 자주 남). 다시 실행해도 같은 곳에서 나면 커널이 유저 스택으로 돌아가는 경로(intr_frame의 rsp, tss)를 확인할 것`);
+        else if (hint) add(ev, "warn", hint[1]);
         break;
       }
       case "timeout": case "aborted": {
@@ -434,12 +439,13 @@ function fdCheck(ev, call, f, add, solo, usedDup2) {
 
 // i번째 이벤트 직후의 상태: 스레드 상태, 진행 중인 시스템 콜, fd 테이블
 function stateAt(i) {
-  const st = {}, pend = {}, fds = {}, prog = {}, gone = {}, kwait = {}, pri = {}, lists = {};
+  const st = {}, pend = {}, fds = {}, prog = {}, gone = {}, kwait = {}, pri = {}, lists = {}, sync = {};
   for (let k = 0; k <= i + 1 && k < T.events.length; k++) {
     const e = T.events[k];
     if (e.st) Object.assign(st, e.st);   // 상태 스냅샷은 이벤트 진입 시점이라 다음 이벤트 것이 "직후"임
     if (e.pri) Object.assign(pri, e.pri);
     if (e.rl) lists.rl = e.rl;
+    if (e.sync) Object.assign(sync, e.sync);
     if (e.sl) lists.sl = e.sl;
     if (k > i) break;
     // 커널 안의 process_wait(main이 initd를 기다리는 것 등): 그 스레드의 다음 이벤트까지 대기 중으로 봄
@@ -460,7 +466,7 @@ function stateAt(i) {
     if (e.kind === "uentry") delete pend[e.by];
     if (e.kind === "exit") { gone[e.target] = k; delete pend[e.target]; }
   }
-  return { st, pend, fds, prog, gone, kwait, pri, lists };
+  return { st, pend, fds, prog, gone, kwait, pri, lists, sync };
 }
 
 // ---- 이벤트 설명 ----
@@ -622,13 +628,18 @@ function renderTree(ev, S) {
   $("tree").innerHTML = (kids.root || []).map(node).join("") || '<li class="note">아직 프로세스 없음</li>';
   // ready_list(앞이 다음에 돌 스레드), sleep_list 순서와 우선순위
   const L = T.lists, item = j => j == null ? "?" : `<span style="color:${color(j)}">${tlabel(j)}</span>${priText(S, j)}`;
-  $("sched").innerHTML = !L ? "" : [["rl", L.ready], ["sl", L.sleep]].filter(([, n]) => n).map(([k, n]) =>
+  if (!L || !$("f-sched").checked) { $("sched").innerHTML = ""; return; }
+  // lock은 주인이 있거나 기다리는 스레드가 있을 때만, sema는 기다리는 스레드가 있을 때만
+  const busy = Object.entries(S.sync).filter(([, o]) => o && (o.w.length || o.h != null));
+  $("sched").innerHTML = ([["rl", L.ready], ["sl", L.sleep]].filter(([, n]) => n).map(([k, n]) =>
     `<div><b>${esc(n)}</b>: ${S.lists[k] ? S.lists[k].map(item).join(" → ") || "(비어 있음)" : "(기록 없음)"}</div>`).join("") ||
-    '<div class="note">ready_list / sleep_list 전역 변수를 못 찾음</div>';
+    '<div class="note">ready_list / sleep_list 전역 변수를 못 찾음</div>') +
+    (busy.length ? busy.map(([id, o]) => `<div><b>${esc(id)}</b>: ${o.h !== undefined ? `주인 ${o.h == null ? "없음" : item(o.h)}` : `값 ${o.v}`}` +
+      `${o.w.length ? ` · 대기 ${o.w.map(item).join(" → ")}` : ""}</div>`).join("") : '<div class="sub">잡힌 lock / 기다리는 sema 없음</div>');
 }
 function priText(S, j) {
   const p = S.pri[j];
-  if (!p) return "";
+  if (!p || !$("f-sched").checked) return "";
   return ` <span class="sub mono">pri ${p[0]}${p[1] !== p[0] ? ` (base ${p[1]})` : ""}</span>`;
 }
 
@@ -914,6 +925,8 @@ if (!names.length) {
   $("speed").onchange = () => { if (timer) { stop(); play(); } };
   $("slider").oninput = () => { stop(); idx = +$("slider").value; render(); };
   $("f-boot").onchange = $("f-out").onchange = () => rebuild(true);
+  try { $("f-sched").checked = localStorage.getItem("uv-sched") !== "0"; } catch (e) {}
+  $("f-sched").onchange = () => { try { localStorage.setItem("uv-sched", $("f-sched").checked ? "1" : "0"); } catch (e) {} render(); };
   document.addEventListener("keydown", e => {
     if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT" && e.target.type !== "range" && e.target.type !== "checkbox") return;
     if (e.key === "ArrowRight") { stop(); idx++; render(); e.preventDefault(); }

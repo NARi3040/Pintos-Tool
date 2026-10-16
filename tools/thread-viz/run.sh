@@ -306,18 +306,24 @@ run_one() {
     # 커널 코드(kernel.bin) 해시도 남겨서, 그 뒤 소스를 고쳐 다시 빌드했으면 디버거가 알아봄.
     # make -B가 매번 다시 빌드해서 수정 시각으로는 못 보고, kernel.o는 어셈블리 파일의 디버그 정보가 빌드마다 달라서 못 씀
     [ -n "${rr[*]:-}" ] && { printf '%s\0' "${P[@]}" > "$OUTDIR/$t.cmd"; sha1sum kernel.bin | cut -c1-40 > "$OUTDIR/$t.kernel"; }
-    timeout $((to + 120)) env GDB_PORT="$gport" ${rr[@]+"${rr[@]}"} "${P[@]}" \
-        > "$OUTDIR/$t.trace-output" 2> "$OUTDIR/$t.err" < /dev/null &
-    local qpid=$!
-    # QEMU가 gdb 포트를 열 때까지 기다림 (고정 1초 대기는 부하가 크면 모자람). QEMU가 이미 죽었으면 안 기다림
-    for _ in $(seq 120); do port_listening "$gport" && break; kill -0 $qpid 2>/dev/null || break; sleep 0.5; done
-    # 멈춘 커널은 trace.py가 TRACE_TIMEOUT 뒤 멈추고, finish()가 그때까지의 트레이스를 저장함
-    # gdb 출력은 .gdb에 남김 (트레이서가 에러로 죽으면 원인이 여기 있음)
-    TRACE_OUT="$OUTDIR/$t.json" TRACE_ICOUNT="${rr[*]:+1}" TRACE_TIMEOUT="$to" TRACE_STOP="$STOPF" timeout $((to + 120)) gdb -q -batch kernel.o \
-        -ex "target remote localhost:$gport" -x "$HERE/$TRACER" -ex continue -ex 'python finish()' > "$OUTDIR/$t.gdb" 2>&1
-    line=$(grep -E '^trace' "$OUTDIR/$t.gdb")
-    # gdb가 끝났는데 QEMU가 남아 있으면(연결 실패 등) 정리함
-    kill_tree $qpid; wait $qpid 2>/dev/null
+    # 원본 syscall-entry.S는 popq %rsp와 sysretq 사이에 인터럽트가 켜져 있어, 그 틈에 타이머가 걸리면 커널이 죽음.
+    # 시스템 콜이 많은 테스트(syn-read 등)에서 트레이스할 때 가끔 나므로, 기록 없이 돈 실행이면 한 번 더 돌림
+    local attempt qpid
+    for attempt in 1 2; do
+        timeout $((to + 120)) env GDB_PORT="$gport" ${rr[@]+"${rr[@]}"} "${P[@]}" \
+            > "$OUTDIR/$t.trace-output" 2> "$OUTDIR/$t.err" < /dev/null &
+        qpid=$!
+        # QEMU가 gdb 포트를 열 때까지 기다림 (고정 1초 대기는 부하가 크면 모자람). QEMU가 이미 죽었으면 안 기다림
+        for _ in $(seq 120); do port_listening "$gport" && break; kill -0 $qpid 2>/dev/null || break; sleep 0.5; done
+        # 멈춘 커널은 trace.py가 TRACE_TIMEOUT 뒤 멈추고, finish()가 그때까지의 트레이스를 저장함
+        # gdb 출력은 .gdb에 남김 (트레이서가 에러로 죽으면 원인이 여기 있음)
+        TRACE_OUT="$OUTDIR/$t.json" TRACE_ICOUNT="${rr[*]:+1}" TRACE_TIMEOUT="$to" TRACE_STOP="$STOPF" timeout $((to + 120)) gdb -q -batch kernel.o \
+            -ex "target remote localhost:$gport" -x "$HERE/$TRACER" -ex continue -ex 'python finish()' > "$OUTDIR/$t.gdb" 2>&1
+        line=$(grep -E '^trace' "$OUTDIR/$t.gdb")
+        # gdb가 끝났는데 QEMU가 남아 있으면(연결 실패 등) 정리함
+        kill_tree $qpid; wait $qpid 2>/dev/null
+        [ $attempt = 1 ] && [ -z "${rr[*]:-}" ] && [ ! -e "$STOPF" ] && grep -q '^syscall-entry race' "$OUTDIR/$t.gdb" || break
+    done
     case "$GRADE_MODE" in
         1) wait_or_stop $gpid ;;
         seq) grade; wait_or_stop $gpid ;;

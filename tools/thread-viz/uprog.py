@@ -59,6 +59,7 @@ T_SLEEP_ELEM = field_off("struct list_elem", r"sleep|alarm|timer", exclude=("ele
 if T_SLEEP_ELEM is None:
     T_SLEEP_ELEM = T_ELEM
 LIST_TAIL = off("((struct list *)0)->tail")
+T_HEAD = max(o for o in (T_TID, T_STATUS, T_PRI, T_BASE) if o is not None) + 4
 
 def find_list(pattern, skip=r"^$"):
     """이름이 pattern에 맞는 전역 struct list 변수 -> (리스트 헤드 주소 목록, 이름). 배열(MLFQS 큐)이면 높은 인덱스부터."""
@@ -94,6 +95,52 @@ def walk(heads, elem_off):
     return out
 
 last_lists = {}
+
+# ---- lock / semaphore 대기열 ----
+# lock_init/sema_init에서 객체 주소를 모으고 이벤트마다 주인/값과 대기 스레드를 읽음. 바뀐 것만 남김
+L_HOLDER = off("((struct lock *)0)->holder")
+L_SEMA = off("((struct lock *)0)->semaphore")
+S_WAITERS = off("((struct semaphore *)0)->waiters")
+objs = {}       # 객체 주소 -> {"id", "kind"}
+obj_n = {}
+last_sync = {}
+
+def on_obj_init(kind):
+    def f():
+        if kind == "sema" and (gdb.selected_frame().older().name() or "") in ("lock_init", "cond_wait"):
+            return   # lock 안의 세마포어, cond_wait의 임시 세마포어는 따로 안 보임
+        addr = arg(0)
+        n = obj_n[kind] = obj_n.get(kind, 0) + 1
+        label = "%s%s%d" % ("" if test_started else "k", kind[0].upper(), n)
+        sym = gdb.execute("info symbol %d" % addr, to_string=True)   # 전역 변수면 이름을 붙임
+        if " in section " in sym and "+" not in sym.split(" in section ")[0]:
+            label += " (%s)" % sym.split(" in section ")[0].strip()
+        objs[addr] = {"id": label, "kind": kind}
+    return f
+
+OBJ_SIZE = {"lock": int(gdb.parse_and_eval("sizeof(struct lock)")), "sema": int(gdb.parse_and_eval("sizeof(struct semaphore)"))}
+
+def read_obj(addr, kind, pagecache):
+    """{"h": 주인 / "v": 값, "w": 대기 스레드}. 해제됐거나 모르는 스레드가 섞였으면 None.
+    객체 전체를 한 번에 읽고 대기열이 비었으면 더 안 읽음 (이벤트마다 모든 객체를 읽어서 읽기 횟수가 곧 속도임)"""
+    n, pg = OBJ_SIZE[kind], addr & ~0xfff
+    if (addr + n - 1) & ~0xfff != pg:
+        raw = bytes(inf.read_memory(addr, n))
+    else:   # 객체 여러 개가 같은 페이지(전역 변수, 스레드 스택)에 몰려 있어서 페이지 단위로 한 번만 읽음
+        if pg not in pagecache:
+            pagecache[pg] = bytes(inf.read_memory(pg, 0x1000))
+        raw = pagecache[pg][addr - pg:addr - pg + n]
+    so = L_SEMA if kind == "lock" else 0
+    head = addr + so + S_WAITERS
+    w = [] if struct.unpack_from("<Q", raw, so + S_WAITERS + 8)[0] == head + LIST_TAIL else walk([head], T_ELEM)
+    if w is None or None in w:
+        return None
+    if kind == "lock":
+        h = struct.unpack_from("<Q", raw, L_HOLDER)[0]
+        if h and h not in threads:
+            return None
+        return {"h": threads.get(h), "w": w}
+    return {"v": struct.unpack_from("<I", raw, so)[0], "w": w}
 
 threads = {}   # 스레드 페이지 주소 -> 고유 id (같은 페이지 재사용 대비)
 info = []      # id -> {name, addr, parent, tid}
@@ -196,22 +243,18 @@ def record(kind, stack=True, **kw):
     for addr, i in threads.items():
         if i in dead:
             continue
-        try:
-            s = i32(addr + T_STATUS)
-            s = STATUS[s] if 0 <= s < 4 else "?"
-            if info[i]["tid"] is None:
-                t = i32(addr + T_TID)
-                if t > 0:
-                    info[i]["tid"] = t
+        try:   # 스레드마다 앞부분을 한 번에 읽음 (이벤트마다 모든 스레드를 읽어서 읽기 횟수가 곧 속도임)
+            raw = bytes(inf.read_memory(addr, T_HEAD))
         except gdb.MemoryError:
             continue
+        r32 = lambda o: struct.unpack_from("<i", raw, o)[0]
+        s = r32(T_STATUS)
+        s = STATUS[s] if 0 <= s < 4 else "?"
+        if info[i]["tid"] is None and r32(T_TID) > 0:
+            info[i]["tid"] = r32(T_TID)
         if last_st.get(i) != s:
             st[i] = last_st[i] = s
-        try:
-            p = i32(addr + T_PRI)
-            p = [p, i32(addr + T_BASE)] if T_BASE is not None else [p, p]
-        except gdb.MemoryError:
-            continue
+        p = [r32(T_PRI), r32(T_BASE if T_BASE is not None else T_PRI)]
         if last_pri.get(i) != p:
             pri[i] = last_pri[i] = p
     if st:
@@ -225,6 +268,19 @@ def record(kind, stack=True, **kw):
             v = None
         if v is not None and last_lists.get(key) != v:   # 직전과 같거나 망가졌으면 생략
             ev[key] = last_lists[key] = v
+    sy, pc = {}, {}
+    for addr, o in objs.items():
+        try:
+            v = read_obj(addr, o["kind"], pc)
+        except gdb.MemoryError:
+            v = None
+        if last_sync.get(o["id"]) != v:
+            sy[o["id"]] = last_sync[o["id"]] = v
+    live = {o["id"] for o in objs.values()}
+    for k in [k for k, v in last_sync.items() if v is not None and k not in live]:   # 해제된 페이지의 객체
+        sy[k] = last_sync[k] = None
+    if sy:
+        ev["sync"] = sy   # 객체 -> 상태 (None이면 못 읽음). 바뀐 것만
     ev["cnt"] = counts()
     if ICOUNT:
         ev["ic"] = icount()
@@ -408,7 +464,10 @@ def on_panic():
         except gdb.error:
             pass
     globals()["panicked"] = True
-    record("panic", file=s(0), line=int(gdb.parse_and_eval("(int)$rsi")), func=s(2), msg=msg)
+    rsp = int(gdb.parse_and_eval("(long)$rsp"))
+    record("panic", file=s(0), line=int(gdb.parse_and_eval("(int)$rsi")), func=s(2), msg=msg, rsp=rsp)
+    if rsp < KERN_BASE:   # 원본 syscall-entry.S의 popq %rsp~sysretq 틈에 인터럽트가 걸림. run.sh가 보고 다시 돌림
+        gdb.write("syscall-entry race: kernel on user stack %#x\n" % rsp)
 
 # 페이지: palloc_get_multiple(flags, cnt) 진입에서 인자를, 복귀 직전에서 결과 주소를 받음
 palloc_req = {}
@@ -425,8 +484,24 @@ def on_palloc_out():
     pages[page] = {"n": req[1], "by": cur(), "user": bool(req[0] & 4), "stack": names, "locs": locs,
                    "ev": len(events) if test_started else None}
 
+def drop_objs(lo, hi):
+    """해제된 메모리 안의 lock/sema는 그만 읽음"""
+    for o in [o for o in objs if lo <= o < hi]:
+        del objs[o]
+
 def on_pfree():
-    pages.pop(arg(0), None)
+    a, n = arg(0), arg(1)
+    pages.pop(a, None)
+    drop_objs(a, a + n * 0x1000)   # 스레드 스택 등
+
+def on_free():
+    """malloc.c의 free(p). 블록 크기는 arena(블록이 든 페이지 맨 앞)의 desc에서 읽음. 큰 블록은 desc가 NULL이고 free_cnt가 페이지 수"""
+    p = arg(0)
+    if not p or not any(p <= o < p + 0x100000 for o in objs):
+        return
+    a = p & ~0xfff
+    desc = u64(a + A_DESC)
+    drop_objs(p, p + u64(desc + D_SIZE) if desc else a + u64(a + A_CNT) * 0x1000)
 
 def on_filesys_open():
     pending_name[cur_addr()] = read_str(arg(0))
@@ -733,7 +808,14 @@ specs = [("init_thread", on_init_thread), ("thread_exit", on_thread_exit), ("run
          ("syscall_handler", on_syscall), ("do_iret", on_do_iret), ("page_fault", on_page_fault), ("kill", on_kill),
          ("putchar_have_lock", on_putchar), ("debug_panic", on_panic), ("power_off", on_power_off),
          ("palloc_get_multiple", on_palloc_in), ("palloc_free_multiple", on_pfree),
-         ("filesys_open", on_filesys_open), ("file_duplicate", on_file_dup_in), ("file_reopen", on_file_dup_in), ("file_close", on_file_close)]
+         ("filesys_open", on_filesys_open), ("file_duplicate", on_file_dup_in), ("file_reopen", on_file_dup_in), ("file_close", on_file_close),
+         ("lock_init", on_obj_init("lock")), ("sema_init", on_obj_init("sema"))]
+try:
+    A_DESC, A_CNT = off("((struct arena *)0)->desc"), off("((struct arena *)0)->free_cnt")
+    D_SIZE = off("((struct desc *)0)->block_size")
+    specs.append(("free", on_free))
+except gdb.error:
+    gdb.write("trace warning: malloc.c의 arena 구조를 못 찾아, free한 lock/sema를 계속 읽을 수 있음\n")
 try:
     a = sysret_addr()
     if a:
