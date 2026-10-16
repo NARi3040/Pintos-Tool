@@ -3,6 +3,15 @@
 릴리스 노트 원본임. 태그를 만들 때 해당 버전 절을 태그 메시지로 씀 (CONTRIBUTING.md 5절).
 첫 줄은 구버전 `update.py`가 업데이트할 때 보여주는 한 줄이므로, 사용자가 꼭 알아야 할 변화를 담음.
 
+## v18
+
+Project 2 뷰어의 스케줄러 상태를 Project 1 뷰어처럼 레인과 카드로 보여 주고, donation 대기 체인과 donations 리스트도 보여 줌
+
+새 기능 (uprog.html)
+- 이벤트 직후 CPU / ready_list / sleep_list / BLOCKED 레인과 스레드 카드. 직전 이벤트와 달라진 곳은 노란색
+- lock 대기 체인 (`A (기다림 L →) B ...`). 서로 기다리면 데드락으로 표시
+- 스레드마다 donations 리스트와 기부한 스레드. 리스트 이름은 Project 1처럼 자동 감지
+
 ## v17
 
 Project 2 뷰어에서도 ready_list/sleep_list 순서, 우선순위, lock/semaphore 대기열을 볼 수 있음
