@@ -6,18 +6,28 @@
   GET  /api/status  실행 중인지, run.sh 출력 끝부분
   POST /api/run     {"mode": "threads"|"userprog", "tests": [...], "mlfqs": bool}
   POST /api/stop    실행 중인 run.sh에 Ctrl-C(SIGINT)를 보냄 -> 그때까지 트레이스를 저장하고 끝남
+  /api/debug/...    디버거 (debug.py). 기록을 재생하며 gdb로 멈추고, 한 줄씩, 거꾸로 실행함 (debug.html)
 
 사용법: python3 server.py <포트> [바인드 주소]
 """
 import json, os, re, signal, subprocess, sys, threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
+import debug
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PINTOS = os.path.normpath(os.path.join(HERE, "..", "..", "pintos"))
 LOG = os.path.join(HERE, "traces", "launcher.log")
+try:   # run.sh가 업데이트 뒤 예전 서버를 알아보고 바꿔 띄우는 데 씀
+    VERSION = open(os.path.join(HERE, "VERSION")).read().strip()
+except OSError:
+    VERSION = ""
 NAME = re.compile(r"^[a-z0-9-]+$")
 lock = threading.Lock()
 proc = None   # 이 서버가 띄운 run.sh
+dbg = None    # 지금 디버거 세션 (하나만)
+dlock = threading.Lock()   # 세션 시작/종료/조작을 한 번에 하나씩
+LOCAL = ("127.0.0.1", "::1", "::ffff:127.0.0.1")
 
 
 def cks(sub):
@@ -104,7 +114,18 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def local_only(self):
+        """디버거 API는 이 컴퓨터에서 localhost 주소로 연 페이지만 씀. 다른 도메인 이름으로 127.0.0.1에 붙는 페이지(DNS rebinding)와
+        VIEW_BIND로 열었을 때 다른 기기에서 오는 요청을 막음 (디버거는 gdb 식을 실행하므로)"""
+        host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
+        if self.client_address[0] in LOCAL and host in ("localhost", "127.0.0.1", "::1"):
+            return True
+        self.reply(403, {"error": "localhost에서만 쓸 수 있음"})
+        return False
+
     def do_GET(self):
+        if self.path.startswith("/api/debug/"):
+            return self.debug_get() if self.local_only() else None
         if self.path == "/":
             self.send_response(302)
             self.send_header("Location", "/index.html")
@@ -112,22 +133,29 @@ class Handler(SimpleHTTPRequestHandler):
         elif self.path.startswith("/api/tests"):
             self.reply(200, tests())
         elif self.path.startswith("/api/status"):
-            self.reply(200, {"running": running(), "mine": proc is not None and proc.poll() is None,
+            self.reply(200, {"running": running(), "mine": proc is not None and proc.poll() is None, "version": VERSION,
                              "exit": None if proc is None else proc.poll(), "log": tail()})
         else:
             super().do_GET()
 
     def do_POST(self):
-        global proc
+        global proc, dbg
         # 다른 사이트의 페이지가 localhost로 요청을 보내 실행시키지 못하게 막음. 이 헤더가 붙은 교차 출처 요청은
         # 브라우저가 사전 요청(preflight)부터 보내는데, 서버가 CORS를 허용하지 않으니 본 요청이 안 옴
         if self.headers.get("X-Thread-Viz") != "1":
             return self.reply(403, {"error": "forbidden"})
+        if self.path.startswith("/api/debug/") and not self.local_only():
+            return
         try:
             n = int(self.headers.get("Content-Length") or 0)
             req = json.loads(self.rfile.read(min(n, 65536)) or b"{}")
         except ValueError:
             return self.reply(400, {"error": "잘못된 요청"})
+        if self.path.startswith("/api/debug/"):
+            if self.path == "/api/debug/step" and req.get("what") == "interrupt":
+                return self.debug_post(req)   # 멈춤은 오래 걸리는 동작 중에도 바로 가야 함
+            with dlock:
+                return self.debug_post(req)
         with lock:
             if self.path == "/api/stop":
                 if proc is not None and proc.poll() is None:
@@ -138,6 +166,10 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.reply(404, {"error": "없는 API"})
             if running():
                 return self.reply(409, {"error": "이미 실행 중임. 끝나거나 중지한 뒤 다시 할 것"})
+            with dlock:   # 다시 실행하면 기록 파일이 바뀌므로 열려 있던 디버거는 닫음
+                if dbg is not None:
+                    dbg.close()
+                    dbg = None
             mode = req.get("mode")
             names = req.get("tests") or []
             if mode not in ("threads", "userprog") or not isinstance(names, list) \
@@ -147,6 +179,8 @@ class Handler(SimpleHTTPRequestHandler):
             args = [os.path.join(HERE, "run.sh"), "--no-update"] + (names or [mode])
             env = dict(os.environ, AUTO="0" if names else os.environ.get("AUTO", "1"),
                        MLFQS="1" if req.get("mlfqs") else "0", NO_OPEN="1")
+            if req.get("replay"):   # 디버거용: Project 2도 기록 모드로 돌려서 재생 기록을 남김
+                env["REPLAY"] = "1"
             os.makedirs(os.path.dirname(LOG), exist_ok=True)
             log = open(LOG, "w")
             log.write("$ tools/thread-viz/run.sh %s\n" % " ".join(args[2:]))
@@ -157,6 +191,54 @@ class Handler(SimpleHTTPRequestHandler):
             log.close()
             return self.reply(200, {"ok": True, "page": "uprog.html" if mode == "userprog" else "viewer.html"})
 
+    # ---- 디버거 ----
+    def debug_get(self):
+        u = urlparse(self.path)
+        q = parse_qs(u.query)
+        try:
+            if u.path == "/api/debug/source":
+                text = debug.source(q.get("path", [""])[0])
+                return self.reply(200, {"text": text}) if text is not None else self.reply(404, {"error": "소스 없음"})
+            if u.path == "/api/debug/state":
+                if dbg is None:
+                    return self.reply(200, {"session": False})
+                return self.reply(200, dict(dbg.state(int(q.get("frame", ["0"])[0])), session=True))
+        except (debug.DebugError, ValueError) as ex:
+            return self.reply(400, {"error": str(ex)})
+        self.reply(404, {"error": "없는 API"})
+
+    def debug_post(self, req):
+        global dbg
+        what = self.path[len("/api/debug/"):]
+        try:
+            for k in ("loc", "expr"):
+                if "\n" in str(req.get(k, "")) or "\r" in str(req.get(k, "")):
+                    raise debug.DebugError("줄바꿈은 쓸 수 없음")
+            if what == "start":
+                if dbg is not None:
+                    dbg.close()
+                    dbg = None
+                dbg = debug.Session(req.get("mode"), req.get("test"), req.get("icount"), bool(req.get("external")))
+                return self.reply(200, {"ok": True, "port": dbg.port})
+            if dbg is None:
+                return self.reply(409, {"error": "디버거 세션이 없음"})
+            if what == "stop":
+                dbg.close()
+                dbg = None
+            elif what == "step":
+                dbg.step(str(req.get("what")), bool(req.get("reverse")))
+            elif what == "goto":
+                dbg.goto(int(req.get("icount")))
+            elif what == "break":
+                dbg.breakpoint(str(req.get("loc")), bool(req.get("on")))
+            elif what == "eval":
+                return self.reply(200, {"value": dbg.evaluate(str(req.get("expr")), int(req.get("frame") or 0))})
+            else:
+                return self.reply(404, {"error": "없는 API"})
+            return self.reply(200, {"ok": True})
+        except (debug.DebugError, ValueError, TypeError, OSError) as ex:
+            return self.reply(400, {"error": str(ex)})
+
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
@@ -164,4 +246,10 @@ if __name__ == "__main__":
     # run.sh가 nohup ... &로 띄우면 SIGINT가 무시(SIG_IGN) 상태로 상속되고, 그대로 두면 자식 run.sh도 무시한 채로 시작해
     # trap을 못 걸어서 중지가 안 됨. 처리기를 걸어 두면 exec된 자식에서는 기본 동작으로 돌아감
     signal.signal(signal.SIGINT, signal.default_int_handler)
-    ThreadingHTTPServer((bind, port), Handler).serve_forever()
+    # pkill로 끌 때도 디버거가 띄운 QEMU/gdb를 같이 정리함 (안 그러면 멈춘 QEMU가 기록 파일을 잡고 남음)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    try:
+        ThreadingHTTPServer((bind, port), Handler).serve_forever()
+    finally:
+        if dbg is not None:
+            dbg.close()
