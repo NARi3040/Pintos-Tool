@@ -257,7 +257,7 @@ tools/thread-viz/run.sh args-multiple fork-once   # 원하는 테스트만. 이�
 ### 화면 (`uprog.html`)
 
 - 프로세스 트리: 이벤트 직후 각 프로세스의 상태와, 진행 중인 시스템 콜(예: `wait(5)` 대기 중), 종료 코드
-- 우선순위·대기열: 이벤트 직후 `ready_list`, `sleep_list` 순서와 스레드마다 priority (base priority가 다르면 같이), 주인이 있는 lock과 기다리는 스레드가 있는 lock/semaphore. 리스트와 필드는 Project 1 뷰어와 같은 방식으로 자동 감지함. 위쪽 "우선순위·대기열 보기"로 끄고 켬
+- 스케줄러 패널: Project 1 뷰어처럼 CPU / `ready_list` / `sleep_list` / BLOCKED 레인과 lock·semaphore 대기열을 카드로 보여 줌 (직전 이벤트 뒤와 달라진 카드는 노란 배경). 그 아래 donation 대기 체인(lock을 기다림 → 주인 → …, 순환이면 데드락 표시)과 스레드별 donations 리스트. 프로세스 트리에도 우선순위를 붙임. 이벤트 직후 `ready_list`, `sleep_list` 순서와 스레드마다 priority (base priority가 다르면 같이), 주인이 있는 lock과 기다리는 스레드가 있는 lock/semaphore. 리스트와 필드는 Project 1 뷰어와 같은 방식으로 자동 감지함. 위쪽 "우선순위·대기열 보기"로 끄고 켬
 - 타임라인: 프로세스별 RUNNING/READY/BLOCKED, 시스템 콜, fork(세로선), 종료(X), fault. 아래 그래프는 테스트 시작 뒤 할당한 페이지 수와 열린 파일 수
 - 유저 스택 탭: `process_exec` 뒤 처음 유저로 들어갈 때의 스택을 8바이트 칸 단위로 보여주고 각 칸에 의미를 붙임 (문자열, 패딩, `argv[i]`, `argv[argc]`, 가짜 반환 주소)
 - fd 테이블 탭: 시스템 콜 반환값으로 재구성한 프로세스별 fd 표 (open → 추가, close → 삭제, fork → 복사)

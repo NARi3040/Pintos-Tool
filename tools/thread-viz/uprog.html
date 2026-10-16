@@ -71,7 +71,28 @@ details summary { cursor: pointer; color: var(--muted); }
 .node.gone { opacity: .55; border-style: dashed; }
 .node .nm { font-weight: 600; }
 .node .sub { font-size: 12px; color: var(--muted); }
-#sched { margin-top: 10px; font-size: 12px; } #sched .sub { color: var(--muted); }
+/* 스케줄러 패널: Project 1 뷰어(viewer.html)와 같은 레인/카드 */
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; min-height: 50px; }
+.lane, .sync { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 10px; align-items: center;
+  padding: 8px 6px; border-top: 1px dashed var(--line); border-radius: 6px; }
+.lane:first-child, .sync:first-child { border-top: 0; }
+.lane-name { font-weight: 600; font-size: 13px; }
+.lane-name small, .sync .meta { display: block; color: var(--muted); font-weight: 400; font-size: 12px; }
+.sync.changed { background: var(--hl); }
+.sync .kd { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); margin-left: 4px; }
+.arrow { color: var(--muted); align-self: center; }
+.empty { color: var(--muted); font-style: italic; align-self: center; }
+.card { border: 2px solid var(--c); border-radius: 8px; padding: 4px 9px; min-width: 92px; background: var(--panel); transition: background .3s; }
+.card.changed { background: var(--hl); }
+.card .nm { font-weight: 600; }
+.card .pr { font-size: 12px; color: var(--muted); }
+.card .pr b { color: var(--text); }
+.card .don { color: var(--dying); font-weight: 600; }
+.card .wt { font-size: 11.5px; color: var(--muted); }
+#sync { margin-top: 10px; }
+.node .pri { font-size: 12px; color: var(--muted); }
+.lockarrow { font-size: 12px; color: var(--muted); align-self: center; text-align: center; }
+.lockarrow b { display: block; color: var(--text); }
 .st { font-weight: 600; font-size: 12px; }
 .st-RUNNING { color: var(--run); } .st-READY { color: var(--ready); } .st-BLOCKED { color: var(--blocked); } .st-DYING, .st-EXIT { color: var(--dying); }
 /* 타임라인 */
@@ -150,8 +171,10 @@ pre.box { max-height: 320px; overflow: auto; margin: 0; white-space: pre-wrap; b
     <div class="panel now"><h2>이번 이벤트</h2><div id="desc"></div><div id="stack" class="mono"></div><div id="viol"></div>
       <details id="src-panel"><summary>소스 (call stack 항목 클릭하면 바뀜)</summary>
         <div id="src-title" class="mono"></div><div id="src" class="mono"></div></details></div>
-    <div class="panel"><h2>프로세스 트리와 우선순위·대기열 — 이벤트 직후</h2><ul class="tree" id="tree"></ul>
-      <div class="mono" id="sched"></div></div>
+    <div class="panel"><h2>프로세스 트리 — 이벤트 직후 (부모 → 자식)</h2><ul class="tree" id="tree"></ul></div>
+    <div class="panel" id="sched-panel"><h2>스케줄러 — 이벤트 직후 (ready_list / sleep_list / lock·semaphore 대기, 앞 → 뒤)</h2>
+      <div id="lanes"></div><div id="sync"></div>
+      <h2 style="margin-top:12px">donation — 대기 체인 (lock을 기다림 → 주인) / donations 리스트</h2><div id="don"></div></div>
     <div class="panel"><h2>타임라인 (가로축 = 이벤트 순서, 클릭하면 이동)</h2>
       <div class="cvwrap"><canvas id="tl"></canvas></div>
       <div class="legend"><span><i style="background:var(--run)"></i>RUNNING</span><span><i style="background:var(--ready)"></i>READY</span>
@@ -586,6 +609,7 @@ function render() {
   showSource(frames[srcSel.k] && frames[srcSel.k][1]);
   const S = stateAt(ev.i);
   renderTree(ev, S);
+  renderSched(ev, S);
   renderStack(ev);
   renderFd(ev, S);
   document.querySelectorAll("#events div.cur").forEach(d => d.classList.remove("cur"));
@@ -626,21 +650,70 @@ function renderTree(ev, S) {
       <span class="nm">${tlabel(j)}</span>${prog}<span class="st st-${st}">${gone ? "" : st}</span>${gone ? "" : priText(S, j)}<span class="sub">${doing}</span></span>${sub ? `<ul>${sub}</ul>` : ""}</li>`;
   };
   $("tree").innerHTML = (kids.root || []).map(node).join("") || '<li class="note">아직 프로세스 없음</li>';
-  // ready_list(앞이 다음에 돌 스레드), sleep_list 순서와 우선순위
-  const L = T.lists, item = j => j == null ? "?" : `<span style="color:${color(j)}">${tlabel(j)}</span>${priText(S, j)}`;
-  if (!L || !$("f-sched").checked) { $("sched").innerHTML = ""; return; }
+}
+
+// Project 1 뷰어의 "이벤트 직후 상태"와 같은 레인. 노란 배경 = 직전 이벤트 뒤와 비교해 바뀐 것
+function renderSched(ev, S) {
+  const L = T.lists;
+  $("sched-panel").hidden = !L || !$("f-sched").checked;
+  if ($("sched-panel").hidden) return;
+  const B = stateAt(ev.i - 1), busy = o => o && (o.w.length || o.h != null);
+  const waitOn = {};   // 스레드 -> 기다리는 객체
+  for (const [id, o] of Object.entries(S.sync)) if (o) for (const w of o.w) waitOn[w] = [id, o];
+  const card = j => {
+    const p = S.pri[j], q = B.pri[j], w = waitOn[j];
+    const changed = JSON.stringify(p) !== JSON.stringify(q) || S.st[j] !== B.st[j];
+    const pr = p ? `<div class="pr">pri <b>${p[0]}</b>${p[1] !== p[0] ? ` <span class="don">(base ${p[1]}, donated)</span>` : ""}</div>` : "";
+    const wt = w ? `<div class="wt">${esc(w[0])} 대기${w[1].h != null ? ` · 주인 ${tlabel(w[1].h)}` : ""}</div>` : "";
+    return `<div class="card${changed ? " changed" : ""}" style="--c:${color(j)}"><div class="nm">${tlabel(j)}</div>${pr}${wt}</div>`;
+  };
+  // ordered: 리스트 순서가 있으면 화살표로 이음 (CPU, BLOCKED는 순서 없음)
+  const list = (arr, none, ordered = true) => arr && arr.length ? arr.map(j => j == null ? '<div class="card">?</div>' : card(j))
+    .join(ordered ? '<span class="arrow">→</span>' : "") : `<span class="empty">${arr ? none : "기록 없음"}</span>`;
+  const alive = j => S.gone[j] == null && T.threads[j].name !== "idle";
+  const ids = T.threads.map((_, j) => j).filter(j => alive(j) && S.st[j]);
+  const inList = new Set([...(S.lists.rl || []), ...(S.lists.sl || [])]);
+  const lane = (n, sub, body) => `<div class="lane"><div class="lane-name">${n}<small>${sub}</small></div><div class="row">${body}</div></div>`;
+  $("lanes").innerHTML =
+    lane("CPU", "RUNNING", list(ids.filter(j => S.st[j] === "RUNNING"), "idle", false)) +
+    (L.ready ? lane(esc(L.ready), "앞 → 뒤 (다음 실행 순서)", list(S.lists.rl, "비어 있음")) : "") +
+    (L.sleep ? lane(esc(L.sleep), "timer_sleep 대기", list(S.lists.sl, "비어 있음")) : "") +
+    lane("BLOCKED", "lock / sema / wait 대기 등", list(ids.filter(j => S.st[j] === "BLOCKED" && !inList.has(j)), "없음", false));
   // lock은 주인이 있거나 기다리는 스레드가 있을 때만, sema는 기다리는 스레드가 있을 때만
-  const busy = Object.entries(S.sync).filter(([, o]) => o && (o.w.length || o.h != null));
-  $("sched").innerHTML = ([["rl", L.ready], ["sl", L.sleep]].filter(([, n]) => n).map(([k, n]) =>
-    `<div><b>${esc(n)}</b>: ${S.lists[k] ? S.lists[k].map(item).join(" → ") || "(비어 있음)" : "(기록 없음)"}</div>`).join("") ||
-    '<div class="note">ready_list / sleep_list 전역 변수를 못 찾음</div>') +
-    (busy.length ? busy.map(([id, o]) => `<div><b>${esc(id)}</b>: ${o.h !== undefined ? `주인 ${o.h == null ? "없음" : item(o.h)}` : `값 ${o.v}`}` +
-      `${o.w.length ? ` · 대기 ${o.w.map(item).join(" → ")}` : ""}</div>`).join("") : '<div class="sub">잡힌 lock / 기다리는 sema 없음</div>');
+  const objs = Object.entries(S.sync).filter(([, o]) => busy(o));
+  $("sync").innerHTML = objs.map(([id, o]) => {
+    const changed = JSON.stringify(o) !== JSON.stringify(B.sync[id]);
+    const meta = o.h !== undefined ? `주인: <b>${o.h == null ? "없음" : tlabel(o.h)}</b>` : `값: <b>${o.v}</b>`;
+    return `<div class="sync${changed ? " changed" : ""}"><div><b>${esc(id)}</b><span class="kd">${o.h !== undefined ? "lock" : "sema"}</span><div class="meta">${meta}</div></div>` +
+      `<div class="row">${list(o.w, "대기자 없음")}</div></div>`;
+  }).join("") || '<span class="empty">잡힌 lock / 기다리는 sema 없음</span>';
+
+  // 대기 체인: lock 대기열의 스레드 -> 그 lock의 주인. 아무도 안 기다리는 스레드(leaf)에서 시작해 주인을 따라감
+  const next = {};
+  for (const [id, o] of Object.entries(S.sync)) if (o && o.h != null) for (const w of o.w) next[w] = [o.h, id];
+  const waitedBy = new Set(Object.values(next).map(([h]) => h));
+  const chains = Object.keys(next).map(Number).filter(k => !waitedBy.has(k)).map(k => {
+    let out = card(k), cur = k;
+    const seen = new Set([k]);
+    while (next[cur] && !seen.has(next[cur][0])) {
+      const [h, id] = next[cur];
+      out += `<span class="lockarrow">기다림<b>${esc(id)}</b>→</span>` + card(h);
+      seen.add(h); cur = h;
+    }
+    if (next[cur]) out += `<span class="lockarrow">기다림<b>${esc(next[cur][1])}</b>→</span><span class="don">${tlabel(next[cur][0])} (순환: 데드락)</span>`;
+    return `<div class="row" style="min-height:0;margin-bottom:8px">${out}</div>`;
+  });
+  // 모두가 서로를 기다리는 순환은 leaf가 없어서 위에서 안 잡힘
+  if (!chains.length && Object.keys(next).length) chains.push('<div class="don">lock 대기가 순환함 (데드락)</div>');
+  const dons = !L.dons ? [] : ids.filter(j => S.pri[j] && S.pri[j][2] && S.pri[j][2].length).map(j =>
+    `<div class="sync"><div><b>${tlabel(j)}</b><div class="meta">donations · pri ${S.pri[j][0]} / base ${S.pri[j][1]}</div></div><div class="row">${list(S.pri[j][2], "", false)}</div></div>`);
+  $("don").innerHTML = (chains.length ? chains.join("") : '<span class="empty">lock을 기다리는 스레드 없음</span>') +
+    (dons.length ? `<div style="margin-top:8px">${dons.join("")}</div>` : L.dons !== false ? "" : '<div class="empty">struct thread에서 donations 리스트를 못 찾음</div>');
 }
 function priText(S, j) {
   const p = S.pri[j];
   if (!p || !$("f-sched").checked) return "";
-  return ` <span class="sub mono">pri ${p[0]}${p[1] !== p[0] ? ` (base ${p[1]})` : ""}</span>`;
+  return ` <span class="pri mono">pri ${p[0]}${p[1] !== p[0] ? ` (base ${p[1]})` : ""}</span>`;
 }
 
 // 유저 스택 탭: 지금 이벤트 또는 그 이전 마지막 유저 진입(process_exec)의 스택

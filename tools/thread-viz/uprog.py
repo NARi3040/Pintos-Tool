@@ -59,7 +59,12 @@ T_SLEEP_ELEM = field_off("struct list_elem", r"sleep|alarm|timer", exclude=("ele
 if T_SLEEP_ELEM is None:
     T_SLEEP_ELEM = T_ELEM
 LIST_TAIL = off("((struct list *)0)->tail")
-T_HEAD = max(o for o in (T_TID, T_STATUS, T_PRI, T_BASE) if o is not None) + 4
+# donations 리스트와 그 원소(list_elem): trace.py와 같은 이름 패턴. 둘 다 있어야 씀
+T_DONS = field_off("struct list", r"don")
+T_DON_ELEM = field_off("struct list_elem", r"don", exclude=("elem",))
+if T_DONS is None or T_DON_ELEM is None:
+    T_DONS = T_DON_ELEM = None
+T_HEAD = max([o + 4 for o in (T_TID, T_STATUS, T_PRI, T_BASE) if o is not None] + ([T_DONS + 16] if T_DONS is not None else []))
 
 def find_list(pattern, skip=r"^$"):
     """이름이 pattern에 맞는 전역 struct list 변수 -> (리스트 헤드 주소 목록, 이름). 배열(MLFQS 큐)이면 높은 인덱스부터."""
@@ -255,6 +260,15 @@ def record(kind, stack=True, **kw):
         if last_st.get(i) != s:
             st[i] = last_st[i] = s
         p = [r32(T_PRI), r32(T_BASE if T_BASE is not None else T_PRI)]
+        if T_DONS is not None:   # 세 번째 = donations 리스트 (스레드 id 목록, 못 읽으면 None). 비었으면 더 안 읽음
+            head = addr + T_DONS
+            if struct.unpack_from("<Q", raw, T_DONS + 8)[0] == head + LIST_TAIL:
+                p.append([])
+            else:
+                try:
+                    p.append(walk([head], T_DON_ELEM))
+                except gdb.MemoryError:
+                    p.append(None)
         if last_pri.get(i) != p:
             pri[i] = last_pri[i] = p
     if st:
@@ -698,7 +712,7 @@ def save(status):
     src = {p: open(os.path.join(ROOT, p), errors="replace").read() for p in sorted(sources)}
     text = json.dumps({"kind": "userprog", "threads": info, "events": events, "sources": src, "status": status,
                        "syscalls": SYSNAMES,
-                       "lists": {"ready": READY_NAME, "sleep": SLEEP_NAME, "base": T_BASE is not None}, "sig": SIG, "truncated": truncated,
+                       "lists": {"ready": READY_NAME, "sleep": SLEEP_NAME, "base": T_BASE is not None, "dons": T_DONS is not None}, "sig": SIG, "truncated": truncated,
                        "leaks": leftovers() if status == "ok" and not truncated else None,
                        "usyms": syms})
     with open(OUT + ".tmp", "w") as fp:
