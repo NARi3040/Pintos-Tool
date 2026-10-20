@@ -213,10 +213,13 @@ def read_bytes(addr, n):
 
 # ---- 페이지 / 파일 / 상태 집계 ----
 pages = {}   # 페이지 주소 -> {n, by, user, stack, locs, ev}
+blocks = {}  # 테스트 시작 후 malloc한 블록 주소 -> {size, by, stack, locs, ev}
+MALLOC = False   # malloc/free를 둘 다 훅했을 때만 블록 누수를 셈
 files = {}   # struct file 주소 -> {name, by, how, stack, locs, ev}
 pending_name = {}   # 스레드 -> filesys_open에 넘긴 이름 (file_open 복귀 때 붙임)
 pending_dup = {}    # 스레드 -> file_duplicate 원본 파일 주소
 pending_sys = {}    # 스레드 -> 진행 중인 시스템 콜 이벤트 번호
+exit_ev = {}        # 스레드 -> 자기 exit 이벤트 번호 (누수가 그 프로세스 종료 전/후 어디서 났는지 보임)
 closed = set()      # file_close한 struct file 주소 (다시 file_close하면 이중 해제)
 dupsrc = {}         # 스레드 -> [원본, 복제본] struct file 주소 쌍 (file_duplicate/file_reopen. fork 자식의 fd 복제 확인용)
 last_open = {}      # 스레드 -> 진행 중인 시스템 콜 안에서 마지막으로 file_open한 struct file 주소
@@ -331,6 +334,7 @@ def on_thread_exit():
     if i is None:
         return
     pending_sys.pop(i, None)
+    exit_ev[i] = len(events)
     record("exit", target=i)
     dead.add(i)
     last_st.pop(i, None)
@@ -498,6 +502,18 @@ def on_palloc_out():
     pages[page] = {"n": req[1], "by": cur(), "user": bool(req[0] & 4), "stack": names, "locs": locs,
                    "ev": len(events) if test_started else None}
 
+def on_malloc_out():
+    """malloc 복귀 직전. 파일 시스템이 malloc을 자주 불러서 진입 훅 없이 프레임의 size 인자를 읽음"""
+    b = int(gdb.parse_and_eval("$rax"))
+    if not b or not test_started:
+        return
+    try:
+        size = int(gdb.parse_and_eval("size"))
+    except gdb.error:
+        size = None
+    names, locs = caller(skip=1, n=4)
+    blocks[b] = {"size": size, "by": cur(), "stack": names, "locs": locs, "ev": len(events)}
+
 def drop_objs(lo, hi):
     """해제된 메모리 안의 lock/sema는 그만 읽음"""
     for o in [o for o in objs if lo <= o < hi]:
@@ -511,6 +527,7 @@ def on_pfree():
 def on_free():
     """malloc.c의 free(p). 블록 크기는 arena(블록이 든 페이지 맨 앞)의 desc에서 읽음. 큰 블록은 desc가 NULL이고 free_cnt가 페이지 수"""
     p = arg(0)
+    blocks.pop(p, None)
     if not p or not any(p <= o < p + 0x100000 for o in objs):
         return
     a = p & ~0xfff
@@ -695,9 +712,13 @@ def leftovers():
     """테스트 시작 후 할당돼 끝날 때까지 안 풀린 페이지/파일. 죽은 스레드의 struct thread 페이지는
     스케줄러가 다음 전환 때 지우므로(destruction_req) 누수가 아니라 pending으로 표시함"""
     dead_pages = {int(info[i]["addr"], 16) for i in dead}
-    lp = [dict(p, addr=hex(a), pending=a in dead_pages) for a, p in pages.items() if p["ev"] is not None]
-    lf = [dict(f, addr=hex(a)) for a, f in files.items() if f["ev"] is not None]
-    return {"pages": lp, "files": lf}
+    # malloc이 받은 arena 페이지는 그 안의 블록이 안 풀려서 남은 것이므로, 블록 쪽(실제로 malloc한 곳)으로만 보임
+    via_malloc = lambda p: MALLOC and "malloc" in p["stack"][:2]
+    lp = [dict(p, addr=hex(a), pending=a in dead_pages, xev=exit_ev.get(p["by"])) for a, p in pages.items()
+          if p["ev"] is not None and not via_malloc(p)]
+    lb = [dict(b, addr=hex(a), xev=exit_ev.get(b["by"])) for a, b in blocks.items()]
+    lf = [dict(f, addr=hex(a), xev=exit_ev.get(f["by"])) for a, f in files.items() if f["ev"] is not None]
+    return {"pages": lp, "files": lf, "blocks": lb if MALLOC else None}
 
 def save(status):
     global saved
@@ -828,6 +849,7 @@ try:
     A_DESC, A_CNT = off("((struct arena *)0)->desc"), off("((struct arena *)0)->free_cnt")
     D_SIZE = off("((struct desc *)0)->block_size")
     specs.append(("free", on_free))
+    MALLOC = True
 except gdb.error:
     gdb.write("trace warning: malloc.c의 arena 구조를 못 찾아, free한 lock/sema를 계속 읽을 수 있음\n")
 try:
@@ -839,13 +861,14 @@ try:
 except gdb.error as ex:
     gdb.write("trace warning: syscall_entry 분석 실패 (%s)\n" % ex)
 for fn, cb in (("palloc_get_multiple", on_palloc_out), ("file_open", file_ret("open")),
-               ("file_reopen", file_ret("reopen")), ("file_duplicate", file_ret("dup"))):
+               ("file_reopen", file_ret("reopen")), ("file_duplicate", file_ret("dup"))) + ((("malloc", on_malloc_out),) if MALLOC else ()):
     try:
         r = ret_addr(fn)
     except gdb.error:
         r = None
     if r is None:
         gdb.write("trace warning: %s의 복귀 지점을 못 찾아 누수 검사에서 뺌\n" % fn)
+        MALLOC = MALLOC and fn != "malloc"
         continue
     specs.append(("*" + r, cb))
 for spec, fn in specs:
