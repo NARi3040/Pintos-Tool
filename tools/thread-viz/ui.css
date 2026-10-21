@@ -209,4 +209,6 @@ header.top { padding: 12px 24px; display: flex; flex-direction: column; gap: 10p
   position: sticky; top: 0; z-index: 2; box-shadow: 0 1px 0 var(--line); }
 header.top .hrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 header.top h1 { font-size: 20px; font-weight: 700; margin: 0 8px 0 0; }
+header.top h1 a.home { color: inherit; }   /* 제목을 누르면 홈(index.html)으로 */
+header.top h1 a.home:hover { color: var(--accent); text-decoration: none; }
 @media (max-width: 800px) { header.top { padding: 12px 16px; } .panel { padding: 16px; } }
