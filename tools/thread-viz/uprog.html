@@ -307,6 +307,8 @@ function prepare(T) {
         break;
       }
       case "timeout": case "aborted": {
+        // 채점 실행은 따로 돌아 통과했으면, 커널이 멈춘 게 아니라 추적(gdb 훅)이 느려서 잘린 것
+        if (ev.kind === "timeout" && T.result?.pass) { add(ev, "warn", `트레이스가 제한 시간(${ev.secs}초)에 걸려 여기까지만 기록했어요. 채점 실행은 통과했으니 커널이 멈춘 게 아니라 추적이 느린 거예요. 끝까지 보려면 TRACE_TIMEOUT=3600처럼 늘리거나 이 테스트만 따로 돌려 주세요`); break; }
         add(ev, "err", ev.kind === "timeout" ? `${ev.secs}초 안에 끝나지 않았어요. 아래 "멈춘 스레드"에서 각 스레드가 어디서 기다리는지 확인해 주세요` : "power_off 전에 중단됐어요");
         const S = ev.stuck || [], waits = {};
         for (const t of S) if (t.lock) waits[t.id] = t.lock.holder;
