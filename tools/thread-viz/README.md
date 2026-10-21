@@ -14,7 +14,7 @@ sleep_list, lock / semaphore / condition 대기 리스트, donation 흐름을 �
 
 `pintos/` 폴더와 같은 높이에 `tools/thread-viz/`가 오게 풀면 돼요.
 
-Windows(Docker Desktop + VS Code)에서 설치나 실행이 막히면 [WINDOWS.md](../../WINDOWS.md)를 봐 주세요.
+Windows(Docker Desktop + VS Code)에서 설치나 실행이 막히면 [WINDOWS.md](https://github.com/NARi3040/Pintos-Tool/blob/main/WINDOWS.md)를 봐 주세요.
 
 ```
 <repo>/

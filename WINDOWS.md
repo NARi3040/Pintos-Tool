@@ -20,6 +20,7 @@ tools/thread-viz/run.sh
 
 - `run.sh`가 서버를 띄우면 VS Code가 8000번 포트를 Windows 쪽으로 자동 포워딩해요. Windows 브라우저에서 `http://localhost:8000/index.html`을 열어요
 - 열리지 않으면 VS Code 아래쪽 **PORTS** 탭에서 포워딩된 주소(예: `localhost:8001`)를 확인해 주세요
+- VS Code 없이 `docker run -p 8000:8000`으로 띄운 컨테이너에서는 서버가 컨테이너 안 127.0.0.1에만 열려 있어 Windows에서 접속이 안 돼요. `VIEW_BIND=0.0.0.0 tools/thread-viz/run.sh`로 실행해 주세요
 
 ## 자주 생기는 문제
 
