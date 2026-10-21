@@ -17,6 +17,8 @@ import debug
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PINTOS = os.path.normpath(os.path.join(HERE, "..", "..", "pintos"))
+if not os.path.isdir(os.path.join(PINTOS, "utils")) and os.path.isdir(os.path.join(HERE, "..", "..", "threads")):   # pintos/ 안에 설치한 경우
+    PINTOS = os.path.normpath(os.path.join(HERE, "..", ".."))
 LOG = os.path.join(HERE, "traces", "launcher.log")
 try:   # run.sh가 업데이트 뒤 예전 서버를 알아보고 바꿔 띄우는 데 씀
     VERSION = open(os.path.join(HERE, "VERSION")).read().strip()

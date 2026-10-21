@@ -14,6 +14,9 @@ set -u
 if (( BASH_VERSINFO[0] * 100 + BASH_VERSINFO[1] < 501 )); then echo "bash 5.1 이상이 필요해요 (지금 $BASH_VERSION)"; exit 1; fi
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PINTOS="$HERE/../../pintos"
+# pintos/ 폴더 안에 설치한 경우(pintos/tools/thread-viz)도 받아 줌
+[ ! -d "$PINTOS/utils" ] && [ -d "$HERE/../../utils" ] && [ -d "$HERE/../../threads" ] && PINTOS="$HERE/../.."
+PINTOS="$(cd "$PINTOS" 2>/dev/null && pwd)" || { echo "pintos 폴더를 찾지 못했어요. Pintos 저장소 루트(pintos/ 폴더가 있는 곳)에서 설치해 주세요"; exit 1; }
 export PATH="$PATH:$PINTOS/utils"
 mkdir -p "$HERE/traces"
 # Windows git(core.autocrlf=true)로 받은 저장소는 utils/pintos 등의 shebang이 'python3\r'이 돼서 실행이 안 됨.

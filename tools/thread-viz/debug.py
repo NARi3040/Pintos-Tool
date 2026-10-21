@@ -12,7 +12,9 @@ QEMU를 새로 띄우고(RRSNAP) 앞으로 감음. QEMU 자체의 reverse-step/r
 import ctypes, hashlib, os, re, shutil, socket, subprocess, tempfile, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PINTOS = os.path.realpath(os.path.join(HERE, "..", "..", "pintos"))   # gdb가 주는 경로도 realpath라 맞춰 둠
+PINTOS = os.path.realpath(os.path.join(HERE, "..", "..", "pintos"))
+if not os.path.isdir(os.path.join(PINTOS, "utils")) and os.path.isdir(os.path.join(HERE, "..", "..", "threads")):   # pintos/ 안에 설치한 경우
+    PINTOS = os.path.realpath(os.path.join(HERE, "..", ".."))   # gdb가 주는 경로도 realpath라 맞춰 둠
 MODES = {"threads": ("traces", "threads"), "userprog": ("utraces", "userprog"), "vm": ("vtraces", "vm")}
 STEPS = {"continue": "-exec-continue", "next": "-exec-next", "step": "-exec-step", "finish": "-exec-finish",
          "stepi": "-exec-step-instruction", "nexti": "-exec-next-instruction"}
