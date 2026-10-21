@@ -14,7 +14,7 @@ sleep_list, lock / semaphore / condition 대기 리스트, donation 흐름을 �
 
 `pintos/` 폴더와 같은 높이에 `tools/thread-viz/`가 오게 풀면 돼요.
 
-`pintos/` 안에 풀었어도(`pintos/tools/thread-viz/`) 동작해요. 옮기고 싶으면 저장소 루트에서 `mv pintos/tools ./tools`를 실행해요. 루트에 `tools/`가 이미 있으면 `tools/tools/thread-viz`로 들어가니 `mv pintos/tools/thread-viz tools/`로 옮겨 주세요.
+Windows(Docker Desktop + VS Code)에서 설치나 실행이 막히면 [WINDOWS.md](../../WINDOWS.md)를 봐 주세요.
 
 ```
 <repo>/
