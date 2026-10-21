@@ -11,6 +11,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "bench")
 CHOICE = os.path.join(HERE, "bench.choice")
 PINTOS = os.path.join(HERE, "..", "..", "pintos")
+if not os.path.isdir(os.path.join(PINTOS, "utils")) and os.path.isdir(os.path.join(HERE, "..", "..", "threads")):   # pintos/ 안에 설치한 경우
+    PINTOS = (os.path.join(HERE, "..", ".."))
 names = sorted(f[:-2] for f in os.listdir(SRC) if f.endswith(".c")) if os.path.isdir(SRC) else []
 func = lambda n: "test_" + n.replace("-", "_")
 

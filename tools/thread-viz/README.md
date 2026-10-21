@@ -14,6 +14,8 @@ sleep_list, lock / semaphore / condition 대기 리스트, donation 흐름을 �
 
 `pintos/` 폴더와 같은 높이에 `tools/thread-viz/`가 오게 풀면 돼요.
 
+Windows(Docker Desktop + VS Code)에서 설치나 실행이 막히면 [WINDOWS.md](https://github.com/NARi3040/Pintos-Tool/blob/main/WINDOWS.md)를 봐 주세요.
+
 ```
 <repo>/
 ├── pintos/
@@ -274,7 +276,7 @@ tools/thread-viz/run.sh args-multiple fork-once   # 원하는 테스트만. 이�
 | fork | 자식이 유저로 돌아갈 때 rax = 0, rip/rsp가 부모가 fork를 부른 위치와 같음, 부모가 받은 값 = 자식 tid |
 | wait | 반환값 = 자식의 exit 코드 (커널이 죽였으면 -1). 자식이 아니거나 이미 wait한 pid면 -1 |
 | 잘못된 포인터 | 포인터 인자가 매핑 안 됐거나 커널 영역인데 시스템 콜이 정상 반환하면 오류. 커널 모드에서 유저 주소 fault는 참고로 표시 |
-| 종료 메시지 | 유저 프로세스가 끝날 때 `이름: exit(코드)`가 찍혔고 코드가 맞는지 |
+| 종료 메시지 | 유저 프로세스가 끝날 때 `이름: exit(코드)`가 찍혔고 코드가 맞는지. `sys_exit`에서 찍든 `process_exit`에서 찍든 둘 다 정상 |
 | fault | 유저 코드가 잘못된 주소를 건드렸으면 그 프로세스가 끝나야 함. 커널 코드 fault는 오류 |
 | 누수 | `power_off` 때 테스트 시작 후 할당한 페이지가 남았거나, 연 파일이 안 닫혔거나, `malloc`한 블록을 `free` 안 했으면 오류. 블록이 남아서 같이 안 풀린 malloc arena 페이지는 페이지 표에서 빼고 블록 쪽(실제로 malloc한 곳)으로만 보여요. 이미 끝난 스레드의 `struct thread` 페이지는 스케줄러가 나중에 지우므로 제외해요. 누수 항목마다 할당 이벤트로 이동하는 링크와, 소유 프로세스가 이미 종료했는지(=종료 때 안 풀음)를 보여 줘요. exec한 프로세스가 안 끝난 채 꺼졌으면 누수 대신 그걸 오류로 보여 줘요 |
 | fd 반환값 | 시스템 콜 반환값으로 다시 만든 fd 표 기준. open이 이미 열린 fd나 0/1을 줌, 빈 이름 open이 성공, open이 fd를 줬는데 열린 파일이 없음, 안 열린 fd의 read/write가 -1이 아님, read/write가 요청 크기보다 큼, 콘솔 `write(1, …, n)`이 n이 아님, exec이 -1 말고 다른 값으로 돌아옴. close 뒤에도 파일이 열려 있거나 열린 fd의 read/write가 -1이면 참고 |

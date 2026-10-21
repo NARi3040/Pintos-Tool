@@ -383,7 +383,8 @@ function prepare(T) {
       case "exit":
         if (T.uentered[ev.target]) {
           const p = printed[ev.target], want = statusOf(ev.target), nm = T.threads[ev.target].name;
-          if (!p || p.i < i) add(ev, "err", `종료 메시지 "${esc(nm)}: exit(${want})"를 출력하지 않았어요`);
+          // sys_exit에서 thread_exit 전에 찍든 process_exit에서 찍든 둘 다 정상이므로 순서는 보지 않음
+          if (!p) add(ev, "err", `종료 메시지 "${esc(nm)}: exit(${want})"를 출력하지 않았어요`);
           else if (p.code !== want) add(ev, "err", `종료 메시지에 exit(${p.code})가 찍혔어요. 기대값 exit(${want})${want === -1 && !(ev.target in exitCode) ? " (커널이 죽인 프로세스)" : ""}`);
           else if (p.name !== nm) add(ev, "warn", `종료 메시지의 이름("${esc(p.name)}")이 스레드 이름("${esc(nm)}")과 달라요`);
         }

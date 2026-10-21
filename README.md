@@ -20,6 +20,8 @@ tools/thread-viz/run.sh
 
 ### 시작하기
 
+Windows 사용자는 [WINDOWS.md](WINDOWS.md)를 먼저 봐 주세요.
+
 #### 필요한 것
 
 `qemu-system-x86_64`, `gdb`(Python 지원), `python3`, `perl`, bash 5.1 이상이 필요해요. 정글 Pintos Docker 이미지에는 다 들어 있어요.

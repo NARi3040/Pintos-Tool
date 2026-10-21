@@ -3,6 +3,15 @@
 릴리스 노트 원본이에요. 태그를 만들 때 해당 버전 절을 태그 메시지로 써요 (CONTRIBUTING.md 5절).
 첫 줄은 구버전 `update.py`가 업데이트할 때 보여 주는 한 줄이므로, 사용자가 꼭 알아야 할 변화를 담아요.
 
+## 다음 버전 (미배포)
+
+고친 것
+- Project 2 종료 메시지 검사: `sys_exit`에서 `이름: exit(n)`을 찍고 `thread_exit`를 부르는 구현을 "종료 메시지를 출력하지 않았어요"로 잘못 잡던 문제. 메시지가 `thread_exit` 전에 찍히든 `process_exit` 안에서 찍히든 정상으로 봐요 (`uprog.html`)
+- `pintos/` 폴더 안(`pintos/tools/thread-viz`)에 풀었을 때 `../../pintos/utils/*`를 못 찾던 문제. 그 자리에 `utils/`, `threads/`가 있으면 그 폴더를 pintos로 써요. 둘 다 없으면 업데이트 확인만 하고 안내를 띄운 뒤 멈춰요 (`run.sh`, `server.py`, `debug.py`, `bench.py`)
+
+문서
+- Windows(Docker Desktop + VS Code Dev Container) 설치·실행 안내 `WINDOWS.md`를 추가했어요
+
 ## v21
 
 `REPLAY=1` 트레이스가 느린 PC(WSL2 등)에서 중간에 시간 초과로 잘리던 문제를 고쳤어요
