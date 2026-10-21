@@ -19,3 +19,7 @@ tools/thread-viz/bench.choice
 *.swp
 .DS_Store
 DESIGN.md
+
+# 파이썬 캐시
+__pycache__/
+*.pyc
