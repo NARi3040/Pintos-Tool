@@ -2,9 +2,9 @@
 """thread-viz 뷰어 서버. 정적 파일(viewer.html, uprog.html, index.html ...)에 더해, 런처 페이지(index.html)가
 테스트를 고르고 run.sh를 돌릴 수 있게 작은 API를 붙임.
 
-  GET  /api/tests   테스트 목록과 지난 결과 (Project 1 / Project 2)
+  GET  /api/tests   테스트 목록과 지난 결과 (Project 1 / 2 / 3)
   GET  /api/status  실행 중인지, run.sh 출력 끝부분
-  POST /api/run     {"mode": "threads"|"userprog", "tests": [...], "mlfqs": bool}
+  POST /api/run     {"mode": "threads"|"userprog"|"vm", "tests": [...], "mlfqs": bool}
   POST /api/stop    실행 중인 run.sh에 Ctrl-C(SIGINT)를 보냄 -> 그때까지 트레이스를 저장하고 끝남
   /api/debug/...    디버거 (debug.py). 기록을 재생하며 gdb로 멈추고, 한 줄씩, 거꾸로 실행함 (debug.html)
 
@@ -55,16 +55,19 @@ def result(outdir, t):
 
 
 def tests():
-    # run.sh와 같은 기준: Project 1은 alarm/priority/bench (+ mlfqs), Project 2는 tests/userprog, no-vm, filesys/base
+    # run.sh와 같은 기준: Project 1은 alarm/priority/bench (+ mlfqs), Project 2는 tests/userprog, no-vm, filesys/base,
+    # Project 3은 tests/vm (+ cow). VM 빌드로 돌린 Project 2 테스트도 고를 수 있게 같이 보임
     p1 = [t for t in cks("threads") if re.match(r"(alarm|priority|bench)-", t)]
     groups = {
         "threads": [("alarm / priority / bench", p1), ("mlfqs (오래 걸림)", cks("threads/mlfqs"))],
         "userprog": [("userprog", cks("userprog")), ("no-vm (multi-oom: 수천 개 프로세스, 앞부분만 기록)", cks("userprog/no-vm")),
                      ("filesys/base", cks("filesys/base"))],
+        "vm": [("vm", cks("vm")), ("vm/cow (extra)", cks("vm/cow")), ("userprog (VM 빌드로 실행)", cks("userprog")),
+               ("filesys/base (VM 빌드로 실행)", cks("filesys/base"))],
     }
     out = {}
     for mode, gs in groups.items():
-        outdir = "traces" if mode == "threads" else "utraces"
+        outdir = {"threads": "traces", "userprog": "utraces", "vm": "vtraces"}[mode]
         out[mode] = [{"group": g, "tests": [{"name": t, "result": result(outdir, t)} for t in ts]} for g, ts in gs if ts]
     return out
 
@@ -172,11 +175,12 @@ class Handler(SimpleHTTPRequestHandler):
                     dbg = None
             mode = req.get("mode")
             names = req.get("tests") or []
-            if mode not in ("threads", "userprog") or not isinstance(names, list) \
+            if mode not in ("threads", "userprog", "vm") or not isinstance(names, list) \
                     or not all(isinstance(t, str) and NAME.match(t) for t in names):
                 return self.reply(400, {"error": "잘못된 요청"})
-            # 테스트를 안 고르면 그 모드 전체. 업데이트 확인은 서버를 띄울 때 이미 했으므로 건너뜀
-            args = [os.path.join(HERE, "run.sh"), "--no-update"] + (names or [mode])
+            # 테스트를 안 고르면 그 모드 전체. 모드를 앞에 붙여서 vm 모드의 args-single 같은 이름도 VM 빌드로 돌게 함.
+            # 업데이트 확인은 서버를 띄울 때 이미 했으므로 건너뜀
+            args = [os.path.join(HERE, "run.sh"), "--no-update", mode] + names
             env = dict(os.environ, AUTO="0" if names else os.environ.get("AUTO", "1"),
                        MLFQS="1" if req.get("mlfqs") else "0", NO_OPEN="1")
             if req.get("replay"):   # 디버거용: Project 2도 기록 모드로 돌려서 재생 기록을 남김
@@ -189,7 +193,7 @@ class Handler(SimpleHTTPRequestHandler):
             proc = subprocess.Popen(args, cwd=os.path.dirname(PINTOS), stdout=log, stderr=subprocess.STDOUT,
                                     stdin=subprocess.DEVNULL, env=env, start_new_session=True)
             log.close()
-            return self.reply(200, {"ok": True, "page": "uprog.html" if mode == "userprog" else "viewer.html"})
+            return self.reply(200, {"ok": True, "page": {"threads": "viewer.html", "userprog": "uprog.html", "vm": "uprog.html?vm"}[mode]})
 
     # ---- 디버거 ----
     def debug_get(self):

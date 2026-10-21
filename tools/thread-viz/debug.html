@@ -147,12 +147,12 @@ pre.cmd { background: var(--bg); padding: 6px 8px; border-radius: 6px; overflow-
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const P = new URLSearchParams(location.search);
-const MODE = P.get("mode") === "userprog" ? "userprog" : "threads", TEST = P.get("test") || "";
-const VIEW = MODE === "userprog" ? "uprog.html" : "viewer.html";
+const MODE = ["userprog", "vm"].includes(P.get("mode")) ? P.get("mode") : "threads", TEST = P.get("test") || "";
+const VIEW = { threads: "viewer.html", userprog: "uprog.html", vm: "uprog.html?vm" }[MODE];
 let T = null, S = null, frame = 0, srcFile = null, srcCache = {}, watches = [], busy = false;
 try { watches = JSON.parse(localStorage.getItem("tvz-watch") || "[]"); } catch (e) {}
 
-$("title").textContent = `${MODE === "userprog" ? "Project 2" : "Project 1"} · ${TEST}`;
+$("title").textContent = `${{ threads: "Project 1", userprog: "Project 2", vm: "Project 3" }[MODE]} · ${TEST}`;
 $("back").href = `${VIEW}#${encodeURIComponent(TEST)}`;
 
 async function api(path, body) {
@@ -173,7 +173,7 @@ function setBusy(b, why) {
 // ---- 트레이스 (이벤트 목록과 icount) ----
 async function loadTrace() {
   try {
-    const r = await fetch(`${MODE === "userprog" ? "utraces" : "traces"}/${encodeURIComponent(TEST)}.json`, { cache: "no-store" });
+    const r = await fetch(`${{ threads: "traces", userprog: "utraces", vm: "vtraces" }[MODE]}/${encodeURIComponent(TEST)}.json`, { cache: "no-store" });
     T = r.ok ? await r.json() : null;
   } catch (e) { T = null; }
 }

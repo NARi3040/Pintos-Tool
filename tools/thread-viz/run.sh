@@ -5,8 +5,10 @@
 #         MLFQS=1 tools/thread-viz/run.sh threads    (mlfqs-* 테스트까지 전부. 오래 걸림)
 #         tools/thread-viz/run.sh --no-update ...   (시작할 때 하는 자동 업데이트를 건너뜀)
 #         tools/thread-viz/run.sh userprog          (Project 2 테스트 전부. args-single처럼 이름만 줘도 됨)
+#         tools/thread-viz/run.sh vm [테스트 이름...] (Project 3: tests/vm 전부, 또는 VM 빌드로 돌릴 테스트)
 # 결과: tools/thread-viz/traces/<test>.json, tools/thread-viz/data.js -> viewer.html 열기
 #       Project 2: tools/thread-viz/utraces/<test>.json, udata.js -> uprog.html
+#       Project 3: tools/thread-viz/vtraces/<test>.json, vdata.js -> uprog.html?vm
 set -u
 # 동시 실행 관리에 wait -n -p를 씀 (bash 5.1 이상. 정글 Docker 이미지 ubuntu 22.04는 5.1)
 if (( BASH_VERSINFO[0] * 100 + BASH_VERSINFO[1] < 501 )); then echo "bash 5.1 이상이 필요함 (지금 $BASH_VERSION)"; exit 1; fi
@@ -64,25 +66,32 @@ if [ $# -eq 0 ]; then
     # VS Code devcontainer는 BROWSER를 호스트 브라우저를 여는 도우미로 설정해 둠. 열 수 없으면 주소만 보여줌
     [ "${NO_OPEN:-0}" = 1 ] || python3 -c 'import sys,webbrowser; webbrowser.open(sys.argv[1])' "$URL" >/dev/null 2>&1 || true
     echo "브라우저에서 테스트를 고르고 실행할 수 있습니다: $URL"
-    echo "(터미널에서 바로 돌리려면: tools/thread-viz/run.sh threads | userprog | <테스트 이름...>)"
+    echo "(터미널에서 바로 돌리려면: tools/thread-viz/run.sh threads | userprog | vm | <테스트 이름...>)"
     exit 0
 fi
 
 # Project 2 모드: 첫 인자가 userprog이거나, 준 테스트가 전부 Project 2 테스트(tests/userprog, tests/filesys/base)이면.
 # userprog/build에서 돌리고, 트레이서는 uprog.py, 결과는 utraces/ -> udata.js -> uprog.html
+# Project 3 모드: 첫 인자가 vm이거나, 준 테스트가 전부 tests/vm 테스트이면. vm/build에서 Project 2와 같은 트레이서(uprog.py)로 돌림.
+# vm 뒤에 args-single 같은 Project 2 테스트 이름을 주면 그 테스트를 VM 빌드로 돌림 (make check도 VM 빌드로 돌림)
 is_uprog() { [ -f "$PINTOS/tests/userprog/$1.ck" ] || [ -f "$PINTOS/tests/userprog/no-vm/$1.ck" ] || [ -f "$PINTOS/tests/filesys/base/$1.ck" ]; }
+is_vm() { [ -f "$PINTOS/tests/vm/$1.ck" ] || [ -f "$PINTOS/tests/vm/cow/$1.ck" ]; }
 MODE=threads
 if [ "$1" = threads ]; then
     shift   # Project 1 테스트 전부 (예전의 인자 없는 실행)
-elif [ "$1" = userprog ]; then
-    MODE=userprog; shift
+elif [ "$1" = userprog ] || [ "$1" = vm ]; then
+    MODE=$1; shift
 elif [ $# -gt 0 ]; then
-    n=0; for t in "$@"; do is_uprog "$t" && n=$((n + 1)); done
+    n=0; v=0; for t in "$@"; do is_uprog "$t" && n=$((n + 1)); is_vm "$t" && v=$((v + 1)); done
     [ $n -eq $# ] && MODE=userprog
-    [ $n -gt 0 ] && [ $n -lt $# ] && { echo "Project 1 테스트와 Project 2 테스트는 따로 돌릴 것"; exit 1; }
+    [ $v -eq $# ] && MODE=vm
+    [ $MODE = threads ] && [ $((n + v)) -gt 0 ] && { echo "Project 1/2/3 테스트는 따로 돌릴 것 (Project 2 테스트를 VM 빌드로 돌리려면 run.sh vm <이름>)"; exit 1; }
 fi
 if [ $MODE = userprog ]; then
     KDIR="$PINTOS/userprog"; OUTDIR="$HERE/utraces"; TRACER=uprog.py; DATA=udata.js; PAGE=uprog.html
+    mkdir -p "$OUTDIR"
+elif [ $MODE = vm ]; then
+    KDIR="$PINTOS/vm"; OUTDIR="$HERE/vtraces"; TRACER=uprog.py; DATA=vdata.js; PAGE="uprog.html?vm"
     mkdir -p "$OUTDIR"
 else
     KDIR="$PINTOS/threads"; OUTDIR="$HERE/traces"; TRACER=trace.py; DATA=data.js; PAGE=viewer.html
@@ -116,12 +125,14 @@ if ! make -s $MFLAGS -C "$KDIR" ${WARN[@]+"${WARN[@]}"} > "$HERE/traces/build.lo
     echo "빌드 실패: 위 컴파일 에러를 먼저 고칠 것 (전체 로그: tools/thread-viz/traces/build.log)"; exit 1
 fi
 
-if [ $MODE = userprog ]; then
+if [ $MODE != threads ]; then
     # 테스트 목록과 실행 명령은 make check가 쓰는 것을 그대로 가져옴 (Make.tests의 인자, -p로 넣는 파일, TIMEOUT)
     declare -A TPATH=() TCMD=()
     for p in $(cd "$BUILD" && make -s --eval='tvz-tests: ; @echo $(TESTS)' tvz-tests ${WARN[@]+"${WARN[@]}"}); do
-        [[ $p == tests/userprog/* || $p == tests/filesys/base/* ]] || continue
+        [[ $p == tests/userprog/* || $p == tests/filesys/base/* || $p == tests/vm/* ]] || continue
         TPATH[${p##*/}]=$p
+        # Project 3 기본 목록은 tests/vm만. VM 빌드의 Project 2 테스트는 이름을 직접 줌
+        [ $MODE = vm ] && [[ $p != tests/vm/* ]] && continue
         # multi-oom은 프로세스를 수천 개 만들어 추적이 수십 분 걸려서 기본 목록에서 뺌 (이름을 직접 주면 돌림)
         [ "${p##*/}" = multi-oom ] || all+=("${p##*/}")
     done
@@ -153,8 +164,8 @@ done
 [ -n "${auto+x}" ] && echo "트레이스 없음/오래됨 -> 자동 수집: ${auto[*]}"
 rm -f "$OUTDIR"/*.tmp
 
-if [ $MODE = userprog ]; then
-    for t in "${tests[@]}"; do [ -n "${TPATH[$t]+x}" ] || { echo "Project 2 테스트가 아님: $t"; exit 1; }; done
+if [ $MODE != threads ]; then
+    for t in "${tests[@]}"; do [ -n "${TPATH[$t]+x}" ] || { echo "$([ $MODE = vm ] && echo "VM 빌드" || echo "Project 2")의 테스트가 아님: $t"; exit 1; }; done
     # make -n -W os.dsk: 결과 파일이 이미 있어도 테스트를 다시 돌릴 명령을 출력함 (-n이라 실제로는 안 돌림).
     # 줄 끝의 리다이렉션(< /dev/null 2> ... > ...)은 떼고, 테스트별 경로는 .errors 파일 이름으로 찾음
     outs=(); for t in "${tests[@]}"; do outs+=("${TPATH[$t]}.output"); done
@@ -187,7 +198,7 @@ progress() {   # $1=running(true/false) $2=현재 테스트 $3=finished 스탬�
 }
 
 # traces/*.json을 data.js 하나로 합침 (Ctrl-C로 중단할 때도 불러서, 지금까지 수집한 것을 뷰어에서 볼 수 있게 함)
-# Project 2 모드는 utraces/*.json -> udata.js
+# Project 2 모드는 utraces/*.json -> udata.js, Project 3 모드는 vtraces/*.json -> vdata.js
 merge_data() {
 STAMP=$(date +%s%3N)
 python3 - "$HERE" "$STAMP" "$OUTDIR" "$DATA" <<'EOF'
@@ -243,8 +254,8 @@ port_listening() {   # IPv6가 꺼져 tcp6이 없어도 되게 cat으로 합쳐�
 # 재생은 gdb가 멈춰도 결과가 같아서 여러 테스트를 동시에 돌려도 됨 (테스트마다 gdb 포트를 따로 씀).
 # REPLAY=0: 예전 방식. 트레이스 실행과 채점 실행이 따로라 타이밍이 다를 수 있고, 동시에 돌리면 더 흔들려서 하나씩 돌림
 # Project 2는 기본 REPLAY=0: 기록 모드가 디스크 I/O에서 극단적으로 느림 (syn-read: 일반 5초, 기록 620초).
-# Project 2 테스트는 타이밍에 덜 민감해서 채점 실행과 트레이스 실행을 따로, 동시에 돌려도 됨
-if [ $MODE = userprog ]; then
+# Project 2 테스트는 타이밍에 덜 민감해서 채점 실행과 트레이스 실행을 따로, 동시에 돌려도 됨. Project 3도 같음
+if [ $MODE != threads ]; then
     REPLAY="${REPLAY:-0}"; JOBS="${JOBS:-$(( $(nproc) / 2 ))}"
 else
     REPLAY="${REPLAY:-1}"
@@ -261,7 +272,7 @@ wait_or_stop() { while kill -0 "$1" 2>/dev/null; do [ -e "$STOPF" ] && { kill_tr
 # Project 2는 make가 만든 명령줄(Make.tests의 인자, -p 파일, --fs-disk 포함)을 그대로 씀
 pcmd() {
     local lim=$1 a skip=0 base=()
-    if [ $MODE = userprog ]; then eval "base=(${TCMD[$t]})"   # 따옴표로 묶인 run '프로그램 인자'를 셸처럼 나눔
+    if [ $MODE != threads ]; then eval "base=(${TCMD[$t]})"   # 따옴표로 묶인 run '프로그램 인자'를 셸처럼 나눔
     else base=(pintos -v -k -T 60 -m 20 -- -q $flags run "$t"); fi
     P=()
     for a in "${base[@]}"; do
@@ -280,10 +291,12 @@ run_one() {
     local t=$1 gport=$2 flags= ck to gto line res st rr=() gpid= P=()
     rm -f "$OUTDIR/$t".{json,out,output,err,result,trace-output,grade-err,rr,summary,gdb,cmd,kernel} "$OUTDIR/$t".rr.d*.qcow2
     # mlfqs 테스트: make check처럼 -mlfqs 옵션을 붙이고, 오래 걸리므로 시간 초과를 길게 잡음
-    if [ $MODE = userprog ]; then
+    if [ $MODE != threads ]; then
         # 제한 시간은 Make.tests 값(-T) 그대로. 추적은 gdb 훅 때문에 느려서 두 배(최소 120초)로 잡음
         ck="$PINTOS/${TPATH[$t]}.ck"; gto=$(sed -n 's/.* -T \([0-9]*\) .*/\1/p' <<< "${TCMD[$t]}"); gto=${gto:-60}
-        to="${TRACE_TIMEOUT:-$(( gto * 2 > 120 ? gto * 2 : 120 ))}"
+        # Project 3은 fault마다 훅이 여러 번 멈춰서 swap 테스트가 특히 느림 (swap-anon: fault 1만 개, 15분 안팎). 최소 900초
+        local tmin=$([[ ${TPATH[$t]} == tests/vm/* ]] && echo 900 || echo 120)
+        to="${TRACE_TIMEOUT:-$(( gto * 2 > tmin ? gto * 2 : tmin ))}"
     elif [[ $t == mlfqs-* ]]; then flags="-mlfqs"; ck="$PINTOS/tests/threads/mlfqs/$t.ck"; to="${TRACE_TIMEOUT:-900}"; gto=480
     else ck="$PINTOS/tests/threads/$t.ck"; to="${TRACE_TIMEOUT:-60}"; gto=60; fi
     # 채점용 실행은 make check와 같은 명령. timeout으로 감싸서 중단할 때 timeout만 끄면 그 아래 pintos와 QEMU까지 같이 꺼짐

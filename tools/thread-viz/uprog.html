@@ -145,15 +145,16 @@ pre.box { max-height: 320px; overflow: auto; margin: 0; white-space: pre-wrap; b
 <body>
 <header>
   <div class="hrow">
-    <h1>Pintos 유저 프로그램 흐름</h1>
+    <h1 id="h1">Pintos 유저 프로그램 흐름</h1>
     <select id="test"></select>
     <span id="res" class="res none"></span>
     <span id="summary"></span>
     <span class="grow"></span>
     <label class="chk"><input type="checkbox" id="f-boot" checked>부팅 출력 숨김</label>
     <label class="chk"><input type="checkbox" id="f-out">콘솔 출력 숨김</label>
+    <label class="chk" id="f-vmf-wrap" hidden><input type="checkbox" id="f-vmf">처리된 page fault 숨김</label>
     <label class="chk"><input type="checkbox" id="f-sched" checked>우선순위·대기열 보기</label>
-    <a href="viewer.html">Project 1 뷰어</a>
+    <a href="viewer.html">Project 1 뷰어</a> <a id="other-view" href="uprog.html?vm">Project 3 뷰어</a>
   </div>
   <div class="hrow">
     <button id="prev" title="이전 (←)">◀</button>
@@ -186,10 +187,11 @@ pre.box { max-height: 320px; overflow: auto; margin: 0; white-space: pre-wrap; b
     </div>
     <div class="panel">
       <div class="tabs" role="tablist">
-        <button data-t="stack" id="tab-stack" role="tab">유저 스택 (인자 전달)</button><button data-t="fd" role="tab">fd 테이블</button><button data-t="fault" id="tab-fault" role="tab">page fault / 예외</button><button data-t="leak" id="tab-leak" role="tab">누수 검사</button><button data-t="ck" id="tab-ck" role="tab">채점 결과 (.ck)</button><button data-t="out" role="tab">테스트 출력</button>
+        <button data-t="stack" id="tab-stack" role="tab">유저 스택 (인자 전달)</button><button data-t="fd" role="tab">fd 테이블</button><button data-t="vm" id="tab-vm" role="tab" hidden>가상 메모리 (SPT / 프레임)</button><button data-t="fault" id="tab-fault" role="tab">page fault / 예외</button><button data-t="leak" id="tab-leak" role="tab">누수 검사</button><button data-t="ck" id="tab-ck" role="tab">채점 결과 (.ck)</button><button data-t="out" role="tab">테스트 출력</button>
       </div>
       <div class="tp" id="tp-stack"></div>
       <div class="tp" id="tp-fd" hidden></div>
+      <div class="tp" id="tp-vm" hidden></div>
       <div class="tp" id="tp-fault" hidden></div>
       <div class="tp" id="tp-leak" hidden></div>
       <div class="tp" id="tp-ck" hidden><pre class="box mono" id="ck"></pre></div>
@@ -198,9 +200,17 @@ pre.box { max-height: 320px; overflow: auto; margin: 0; white-space: pre-wrap; b
   </div>
   <aside class="panel" id="events"></aside>
 </main>
-<script src="udata.js"></script>
+<script>
+// uprog.html?vm = Project 3 (VM 빌드로 돈 테스트, vdata.js). 화면은 Project 2와 같고 가상 메모리 탭이 붙음
+const VM_MODE = /[?&]vm\b/.test(location.search);
+document.write(`<script src="${VM_MODE ? "vdata" : "udata"}.js"><\/script>`);
+</script>
 <script>
 const $ = id => document.getElementById(id);
+if (VM_MODE) {
+  $("h1").textContent = "Pintos 가상 메모리 흐름 (Project 3)"; document.title = "Pintos VM Viewer";
+  $("other-view").href = "uprog.html"; $("other-view").textContent = "Project 2 뷰어";
+}
 const TR = window.TRACES || {};
 let T, view = [], idx = 0, timer = null, srcSel = null, tlCache = null;
 const USER_STACK = 0x47480000, KERN_BASE = 0x8004000000;
@@ -293,6 +303,7 @@ function prepare(T) {
   });
   T.exitCode = exitCode; T.exited = exited; T.uentered = uentered;
   const E = T.events, add = (ev, lvl, msg) => ev.viol.push({ lvl, msg });
+  if (T.vm) vmCheck(T, add);
   const tidOf = i => T.threads[i] && T.threads[i].tid;
   const statusOf = j => j in exitCode ? exitCode[j] : -1;   // exit 시스템 콜 없이 죽었으면(fault 등) -1
   // 유저가 받은 fd로 다시 만든 프로세스별 fd 표 (stateAt과 같은 규칙). 커널 안의 실제 표는 안 읽음
@@ -380,6 +391,7 @@ function prepare(T) {
         break;
       }
       case "fault":
+        if (ev.vmok) break;   // Project 3: vm_try_handle_fault가 처리함 (lazy 로딩 등). 검사는 vmCheck에서
         if (ev.vec != null) { if (!ev.user) add(ev, "err", `커널 코드에서 ${vecName(ev.vec)}`); }
         else if (!ev.user && ev.addr != null && ev.addr < KERN_BASE)
           add(ev, "warn", `커널 코드(${esc(ev.ksym || hex(ev.rip))})가 유저 주소 ${hex(ev.addr)}에 접근하다 fault. 시스템 콜 포인터를 미리 검사하지 않았다면 여기서 커널이 죽을 수 있음`);
@@ -439,7 +451,8 @@ function fdCheck(ev, call, f, add, solo, usedDup2) {
     case "open":
       if (r >= 2 && f[r]) add(ev, "err", `open이 이미 열려 있는 fd ${r}를 또 줌. fd 번호 할당 확인`);
       if (r >= 0 && call.strs[0] === "") add(ev, "err", `빈 이름 open이 fd ${r}를 반환함. -1이어야 함`);
-      else if (r >= 0 && d === 0) add(ev, "err", `open이 fd ${r}를 줬는데 실제로 열린 파일이 없음 (file_open이 안 불림)`);
+      // call.fp = 이 호출 안에서 이 스레드가 file_open한 파일. 있으면 다른 프로세스가 동시에 닫아 개수가 그대로여도 정상
+      else if (r >= 0 && d === 0 && !call.fp) add(ev, "err", `open이 fd ${r}를 줬는데 실제로 열린 파일이 없음 (file_open이 안 불림)`);
       break;
     case "close":
       if (fd >= 2 && f[fd] && d === 0 && !usedDup2) add(ev, "warn", `close(${fd}) 뒤에도 파일이 열린 채로 남음. file_close를 불렀는지 확인`);
@@ -496,6 +509,7 @@ function stateAt(i) {
 // ---- 이벤트 설명 ----
 function fmtArg(ev, k) {
   const c = ev.sig[k], v = ev.args[k], bad = (ev.bad || []).includes(k);
+  if ((ev.lazy || []).includes(k)) return `${hex(v)} <span class="note">(아직 안 올린 페이지)</span>`;
   if (c === "s") return ev.strs[k] != null ? `"${esc(ev.strs[k])}"` : `<span class="st-DYING">${hex(v)} (잘못된 포인터)</span>`;
   if (c === "b" || c === "p") return bad ? `<span class="st-DYING">${hex(v)} (잘못된 포인터)</span>` : hex(v);
   return String(v);
@@ -534,8 +548,9 @@ function describe(ev) {
       const w = ev.err & 2 ? "쓰기" : "읽기", p = ev.err & 1 ? "권한 위반" : "매핑 안 된 페이지";
       const sym = ev.user ? T.usyms[`${ev.prog}@${ev.rip.toString(16)}`] : null;
       const at = ev.user ? `유저 코드 ${hex(ev.rip)}${sym ? ` (${esc(sym.fn)}${sym.loc ? " " + esc(sym.loc) : ""})` : ""}` : `커널 코드 ${esc(ev.ksym || hex(ev.rip))}${ev.kloc ? " " + esc(ev.kloc) : ""}`;
-      const code = T.exitCode[ev.by], after = T.exited[ev.by] != null ? ` → 이후 종료 (exit(${code ?? -1}))` : "";
-      return `<b>${by}</b> page fault: 주소 <b>${hex(ev.addr)}</b> ${w} (${p}) · ${at}${after}`;
+      const code = T.exitCode[ev.by], after = ev.vmok ? "" : T.exited[ev.by] != null ? ` → 이후 종료 (exit(${code ?? -1}))` : "";
+      const vm = ev.vmok ? ` → <b>처리함</b>: ${ev.vmk}` : ev.died ? " → fault 처리 중에 프로세스가 끝남 (exit(-1) 등)" : ev.vmok === false ? " → vm_try_handle_fault가 false 반환" : "";
+      return `<b>${by}</b> page fault: 주소 <b>${hex(ev.addr)}</b> ${w} (${p}) · ${at}${vm}${after}`;
     }
     case "wait": return `<b>${by}</b>가 process_wait(${ev.child}) 진입`;
     case "exit": return `<b>${tname(ev.target)}</b> 종료 (thread_exit → process_exit)${ev.target in T.exitCode ? ` · exit(${T.exitCode[ev.target]})` : T.uentered[ev.target] ? " · exit 시스템 콜 없이 종료 (커널이 죽임 → -1)" : ""}`;
@@ -566,7 +581,8 @@ function short(ev) {
     case "create": return `생성 → ${tname(ev.target)}`;
     case "exec": return `exec "${esc(ev.cmd)}"`;
     case "uentry": return ev.via === "__do_fork" ? `유저 복귀 (fork 자식, rax=${ev.regs.rax})` : `유저 시작 argc=${ev.regs.rdi}`;
-    case "fault": return ev.vec != null ? `예외 ${vecName(ev.vec).split(" ")[0]}` : `page fault @${hex(ev.addr)}${ev.user ? "" : " (커널)"}`;
+    case "fault": if (ev.died) return `page fault @${hex(ev.addr)} · 처리 중 종료`;
+      return ev.vec != null ? `예외 ${vecName(ev.vec).split(" ")[0]}` : `page fault @${hex(ev.addr)}${ev.user ? "" : " (커널)"}${ev.vmok ? " · " + ev.vmk.split(" (")[0] : ev.vmok === false ? " · 처리 실패" : ""}`;
     case "wait": return `process_wait(${ev.child})`;
     case "exit": return `종료 ${tname(ev.target)}`;
     case "out": return `› ${esc(ev.text)}`;
@@ -581,6 +597,7 @@ function isHidden(ev) {
   if (ev.viol.length) return false;
   if ($("f-boot").checked && ev.boot && ev.kind === "out") return true;
   if ($("f-out").checked && ev.kind === "out") return true;
+  if (VM_MODE && $("f-vmf").checked && ev.kind === "fault" && ev.vmok) return true;
   // 같은 스레드 이벤트만 사이에 있으면 반환을 호출 줄에 합쳐 보여주므로 sysret은 숨김
   if (ev.kind === "sysret" && T.events.slice(ev.call + 1, ev.i).every(e => e.by === ev.by)) return true;
   return false;
@@ -595,7 +612,7 @@ function render() {
   $("pos").textContent = `${idx + 1}/${view.length} · tick ${ev.tick ?? "?"}`;
   $("desc").innerHTML = `<span class="kind">${ev.kind}</span>${describe(ev)}` +
     // 기록 재생으로 이 이벤트 시점에 gdb를 멈춤 (debug.html). icount가 없으면(기록 없이 돈 실행) 디버거 쪽에서 다시 실행을 제안함
-    ` <a class="dbg" target="_blank" href="debug.html?mode=userprog&test=${encodeURIComponent(T.name)}${ev.ic != null ? "&ev=" + ev.i : ""}">${ev.ic != null ? "이 시점부터 디버그 ↗" : "디버거 ↗"}</a>`;
+    ` <a class="dbg" target="_blank" href="debug.html?mode=${VM_MODE ? "vm" : "userprog"}&test=${encodeURIComponent(T.name)}${ev.ic != null ? "&ev=" + ev.i : ""}">${ev.ic != null ? "이 시점부터 디버그 ↗" : "디버거 ↗"}</a>`;
   // call stack: 커널 위치 + (있으면) 유저 코드 위치
   const frames = (ev.stack || []).map((f, k) => [f, (ev.locs || [])[k]]);
   const us = ev.kind === "fault" && ev.user ? T.usyms[`${ev.prog}@${ev.rip.toString(16)}`]
@@ -613,6 +630,7 @@ function render() {
   renderSched(ev, S);
   renderStack(ev);
   renderFd(ev, S);
+  renderVm(ev);
   document.querySelectorAll("#events div.cur").forEach(d => d.classList.remove("cur"));
   const row = $("events").querySelector(`div[data-k="${idx}"]`);
   if (row) { row.classList.add("cur"); row.scrollIntoView({ block: "nearest" }); }
@@ -761,6 +779,122 @@ function renderStack(ev) {
   el.querySelectorAll("a.jump").forEach(a => a.onclick = () => jump(+a.dataset.i));
 }
 
+// ---- Project 3: 페이지 상태 ----
+// 트레이서가 이벤트마다 붙인 변화(ev.vm)를 처음부터 쌓아서 프로세스별 페이지 표를 만듦. 학생 SPT를 직접 읽은 게 아님
+// a: SPT에 들어감(uninit_new) t: lazy 로딩(initializer) m/u: 프레임 매핑/해제(pml4) o/i: swap out/in d: 제거(destroy) x: 페이지 테이블 제거
+const VM_TY = ["uninit", "anon", "file", "page cache"];
+const pgOf = a => a - a % 4096;
+function vmApply(P, d, warn) {
+  const [c, o, va] = d, M = P[o] || (P[o] = new Map());
+  if (c === "x") { for (const p of M.values()) if (p.st === "mem") { p.st = "unmapped"; p.kva = null; } return; }
+  if (c === "a") { M.set(va, { ty: d[3] & 7, raw: d[3], cur: 0, w: d[4], init: d[5], st: "lazy", kva: null }); return; }
+  if (c === "d") { M.delete(va); return; }
+  let p = M.get(va);
+  // destroy 훅은 함수 진입에서 불려서 그 안의 pml4_clear_page(u)가 지운 뒤에 옴. 없는 페이지의 u/o/i는 무시
+  if (!p && "uoi".includes(c)) return;
+  if (!p) M.set(va, p = { ty: null, cur: null, w: null, st: "lazy", kva: null, nospt: true });
+  if (c === "t") { p.cur = d[3]; p.ty = p.ty ?? d[3]; }
+  else if (c === "m") { p.st = "mem"; p.kva = d[3]; p.rw = d[4]; }
+  else if (c === "u") { if (p.st === "mem") p.st = "unmapped"; p.kva = null; }
+  else if (c === "o") { p.st = (p.cur ?? p.ty) === 2 ? "out" : "swap"; p.kva = null; p.swapped = true; }
+  // 스켈레톤 vm_do_claim_page는 매핑(m)을 먼저 하고 swap_in을 부르므로 상태 대신 내보낸 적이 있는지로 봄
+  else if (c === "i") { if (warn && !p.swapped) warn(`${hex(va)}는 내보낸(swap out) 적이 없는데 swap_in이 불림`); p.swapped = false; }
+}
+let vmCache = null;
+function vmAt(i) {   // 이벤트 i까지의 변화를 반영한 상태. 앞으로 갈 때는 이어서 계산함
+  if (!vmCache || vmCache.T !== T || vmCache.i > i) vmCache = { T, i: -1, P: {} };
+  for (let k = vmCache.i + 1; k <= i; k++) for (const d of T.events[k].vm || []) vmApply(vmCache.P, d);
+  vmCache.i = i;
+  return vmCache.P;
+}
+const STACK_MAX = 1 << 20;
+// writable(w)를 못 읽었으면 null이라 쓰기 fault의 "처리 안 됨" 검사는 건너뜀
+function vmCheck(T, add) {
+  const P = {}, pend = {};   // pend: 스레드 -> 그 스레드가 직전 이벤트 뒤로 바꾼 것 (다른 스레드 이벤트에 붙어 왔을 수 있음)
+  let nbad = 0;
+  for (const ev of T.events) {
+    const isPf = ev.kind === "fault" && ev.vec == null && ev.addr != null;
+    const va = isPf ? pgOf(ev.addr) : null;
+    (ev.vm || []).forEach((d, k) => {
+      const p = pend[ev.vmby ? ev.vmby[k] : ev.by] ??= { ds: [], pre: new Map() }, key = d[1] + ":" + d[2], cur = P[d[1]]?.get(d[2]);
+      if (!p.pre.has(key)) p.pre.set(key, cur && { ...cur });
+      p.ds.push(d);
+      vmApply(P, d, msg => add(ev, "warn", msg));
+    });
+    const my = pend[ev.by] || { ds: [], pre: new Map() }, key = ev.by + ":" + va, now0 = P[ev.by]?.get(va);
+    const was = my.pre.has(key) ? my.pre.get(key) : now0 && { ...now0 }, ds = my.ds;
+    if (ev.kind !== "out" && ev.kind !== "dclose") delete pend[ev.by];   // fault 처리 중의 출력/파일 닫기는 그 fault를 끊지 않음
+    // 트레이서는 gdb로 못 읽는 포인터를 잘못된 포인터로 봄. VM에선 SPT에 있는데 아직 안 올린 페이지일 수 있으니 뺌
+    if (ev.kind === "sys" && ev.bad && ev.bad.length) {
+      const M = P[ev.by], ok = a => a < KERN_BASE && !!M?.has(pgOf(a));
+      ev.bad = ev.bad.filter(k => {
+        const v = ev.args[k], n = ev.sig[k] === "b" ? ev.args[k + 1] : 1;
+        if (!ok(v) || !ok(v + n - 1)) return true;
+        (ev.lazy = ev.lazy || []).push(k);
+        return false;
+      });
+    }
+    if (!isPf || ev.vmok == null) continue;
+    const mine = ds.filter(d => d[1] === ev.by && d[2] === va), has = c => mine.some(d => d[0] === c);
+    const now = P[ev.by]?.get(va), write = ev.err & 2, present = ev.err & 1;
+    const outs = ds.filter(d => d[0] === "o").length;
+    if (ev.vmok) {
+      ev.vmk = has("a") ? "스택 확장" : has("i") ? "swap in" : has("t") ? `lazy 로딩 (${VM_TY[now?.cur] ?? "?"}${now?.init ? ", " + now.init : ""})`
+        : present && has("m") ? "쓰기 권한 처리 (copy-on-write)" : has("m") ? "프레임에 올림" : "매핑 변화 없음";
+      if (outs) ev.vmk += ` · 다른 페이지 ${outs}개 내보냄`;
+      if (ev.addr >= KERN_BASE || va === 0) add(ev, "err", `${va === 0 ? "NULL 근처" : "커널"} 주소 ${hex(ev.addr)}의 fault를 vm_try_handle_fault가 처리했다고(true) 반환함. 유저 영역이 아니면 false를 반환해야 함`);
+      else if (!now || now.st !== "mem") add(ev, "err", `vm_try_handle_fault가 true를 반환했는데 ${hex(va)} 페이지가 프레임에 매핑되지 않음 (pml4_set_page 안 함). 같은 주소에서 fault가 계속 남`);
+      if (write && was && was.w === false) add(ev, "err", `쓰기 금지 페이지 ${hex(va)}(${was.init ? esc(was.init) + "로 올린 " : ""}writable=false)에 쓰기 fault를 처리함. false를 반환해서 프로세스를 끝내야 함 (pt-write-code 등)`);
+      else if (write && now?.st === "mem" && now.rw === false && has("m")) add(ev, "err", `쓰기 fault를 처리하면서 ${hex(va)}를 읽기 전용으로 매핑함. 같은 쓰기에서 다시 fault가 남`);
+      if (has("a")) {
+        if (ev.user && ev.addr < ev.rsp - 8) add(ev, "err", `rsp(${hex(ev.rsp)})보다 ${ev.rsp - ev.addr}바이트 아래를 건드렸는데 스택을 늘림. rsp - 8 아래 접근은 잘못된 접근임 (pt-grow-bad)`);
+        if (va < USER_STACK - STACK_MAX) add(ev, "err", `스택을 1MB 넘게 늘림 (${hex(va)}). USER_STACK - 1MB 아래는 거부해야 함`);
+      }
+    } else if (!present && was && (was.st !== "mem") && !(write && was.w !== true) && ev.addr < KERN_BASE)
+      add(ev, "err", `${hex(va)}는 SPT에 있는 페이지(${was.st === "lazy" ? "아직 안 올린 " + (VM_TY[was.ty] ?? "") : was.st === "swap" ? "swap된" : was.st === "out" ? "파일로 내보낸" : "매핑 해제된"} 페이지)인데 vm_try_handle_fault가 false를 반환함. 여기서 프레임을 받아 올려야 함`);
+    else if (!present && !was && ev.user && !ev.died && ev.addr < USER_STACK && ev.addr >= USER_STACK - STACK_MAX && ev.addr >= ev.rsp - 8)
+      add(ev, "err", `rsp(${hex(ev.rsp)}) 근처 스택 주소 ${hex(ev.addr)}의 fault인데 스택을 늘리지 않음 (pt-grow-stack). USER_STACK - 1MB 안이고 rsp - 8 이상이면 페이지를 새로 만들어야 함`);
+    if (ev.viol.some(v => v.lvl === "err")) nbad++;
+  }
+  T.vmbad = nbad;
+}
+function renderVm(ev) {
+  if (!T.vm || $("tp-vm").hidden) return;
+  const P = vmAt(ev.i), touched = new Set((ev.vm || []).map(d => d[1] + ":" + d[2]));
+  let mem = 0, swp = 0, out = 0;
+  const cnt = { f: 0, ok: 0, o: 0, i: 0 };
+  for (let k = 0; k <= ev.i; k++) {
+    const e = T.events[k];
+    if (e.kind === "fault" && e.vec == null) { cnt.f++; if (e.vmok) cnt.ok++; }
+    for (const d of e.vm || []) if (d[0] === "o" || d[0] === "i") cnt[d[0]]++;
+  }
+  const procs = Object.keys(P).filter(o => P[o].size);
+  const st = p => ({ lazy: "lazy (아직 안 올림)", mem: "메모리", swap: "swap 디스크", out: "파일로 내보냄", unmapped: "매핑 해제됨" })[p.st];
+  const kind = p => p.nospt ? "SPT 기록 없음" : p.cur === 0 ? `uninit → ${VM_TY[p.ty] ?? p.ty}` : VM_TY[p.cur] ?? "?";
+  const mark = p => [p.raw & 8 ? "MARKER_0" : "", p.raw & 16 ? "MARKER_1" : ""].filter(Boolean).join(" ");
+  const tables = procs.map(o => {
+    const M = P[o], vas = [...M.keys()].sort((a, b) => a - b), rows = [];
+    for (const va of vas) {
+      const p = M.get(va); if (p.st === "mem") mem++; if (p.st === "swap") swp++; if (p.st === "out") out++;
+      const key = [kind(p), p.w, p.st, p.init, mark(p)].join("|"), hl = touched.has(o + ":" + va), last = rows[rows.length - 1];
+      if (last && last.key === key && last.end + 4096 === va && last.hl === hl) { last.end = va; last.n++; }
+      else rows.push({ key, start: va, end: va, n: 1, p, hl });
+    }
+    const gone = T.exited[o] != null && T.exited[o] <= ev.i;
+    return `<div style="margin-bottom:10px"><b style="color:${o === "null" ? "inherit" : color(+o)}">${o === "null" ? "? (pml4 주인 모름)" : tlabel(+o)}</b>${gone ? ' <span class="st st-EXIT">종료됨</span>' : ""} <span class="note">페이지 ${M.size}개</span>
+      <div class="tblwrap"><table><thead><tr><th>va</th><th>개수</th><th>종류</th><th>쓰기</th><th>상태</th><th>초기화 함수 / kva</th></tr></thead><tbody>${rows.map(r => {
+        const p = r.p;
+        return `<tr${r.hl ? ' class="hl"' : ""}><td class="mono">${hex(r.start)}${r.n > 1 ? " – " + hex(r.end + 4095) : ""}</td><td>${r.n}</td><td>${kind(p)}${mark(p) ? ` <span class="note">${mark(p)}</span>` : ""}</td>
+          <td>${p.w == null ? "?" : p.w ? "O" : "읽기 전용"}</td><td>${st(p)}${p.st === "mem" && p.rw === false && p.w ? ' <span class="note">(읽기 전용으로 매핑)</span>' : ""}</td>
+          <td class="mono">${p.st === "mem" && r.n === 1 ? "kva " + hex(p.kva) : esc(p.init ?? "")}</td></tr>`;
+      }).join("")}</tbody></table></div></div>`;
+  });
+  $("tp-vm").innerHTML = `<div class="kv"><span>프레임 사용 <b>${mem}</b>${T.vm.upool ? " / " + T.vm.upool + " (user pool)" : ""}</span><span>swap된 페이지 <b>${swp}</b></span>${out ? `<span>파일로 내보낸 페이지 <b>${out}</b></span>` : ""}
+    <span>page fault ${cnt.f}번 (처리 ${cnt.ok})</span><span>swap out ${cnt.o} · swap in ${cnt.i}</span></div>` +
+    (tables.join("") || '<div class="note">아직 SPT에 들어간 페이지 없음</div>') +
+    `<div class="note">이벤트 시점의 프로세스별 페이지 (노란 줄 = 이번 이벤트에서 바뀜). 학생 SPT를 직접 읽지 않고 원본 함수 호출로 재구성함: uninit_new(SPT에 추가) → anon/file_backed_initializer(lazy 로딩) → pml4_set_page/clear_page(프레임 매핑) → *_swap_out / *_swap_in → *_destroy(제거).${T.vm.ret ? "" : " vm_try_handle_fault의 복귀 지점을 못 찾아 fault 처리 결과는 없음"}</div>`;
+}
+
 function renderFd(ev, S) {
   const live = Object.keys(S.fds).map(Number).filter(j => T.uentered[j] && T.events.findIndex(e => e.kind === "uentry" && e.by === j) <= ev.i);
   $("tp-fd").innerHTML = (live.length ? live.map(j => {
@@ -781,10 +915,10 @@ function renderFaults() {
   $("tp-fault").innerHTML = fs.length ? `<div class="tblwrap"><table><thead><tr><th>프로세스</th><th>주소</th><th>종류</th><th>위치</th><th>결과</th></tr></thead><tbody>${fs.map(e => {
     const sym = e.user ? T.usyms[`${e.prog}@${e.rip.toString(16)}`] : null;
     const at = e.user ? `유저 ${hex(e.rip)}${sym ? " " + esc(sym.fn) + (sym.loc ? " (" + esc(sym.loc) + ")" : "") : ""}` : `커널 ${esc(e.ksym || hex(e.rip))}${e.kloc ? " (" + esc(e.kloc) + ")" : ""}`;
-    const res = T.exited[e.by] != null ? `exit(${T.exitCode[e.by] ?? -1})` : "종료 안 됨";
+    const res = e.vmok ? esc(e.vmk) : T.exited[e.by] != null ? `exit(${T.exitCode[e.by] ?? -1})` : "종료 안 됨";
     return `<tr><td><a class="jump" data-i="${e.i}">${tname(e.by)}</a></td><td class="mono">${hex(e.addr)}</td>
       <td>${e.vec != null ? vecName(e.vec) : `${e.err & 2 ? "쓰기" : "읽기"} · ${e.err & 1 ? "권한 위반" : "매핑 없음"} · ${e.err & 4 ? "유저 모드" : "커널 모드"}`}</td><td class="mono">${at}</td><td>${res}${e.viol.length ? " ⚠" : ""}</td></tr>`;
-  }).join("")}</tbody></table></div><div class="note">유저 프로그램이 잘못된 주소를 건드리면 커널은 그 프로세스를 exit(-1)로 끝내야 함 (bad-* 테스트). 커널 모드 fault는 시스템 콜 처리 중 유저 포인터를 그대로 썼다는 뜻</div>`
+  }).join("")}</tbody></table></div><div class="note">${T.vm ? "Project 3: 처리함 = vm_try_handle_fault가 true를 반환함 (lazy 로딩, swap in, 스택 확장 등). " : ""}유저 프로그램이 잘못된 주소를 건드리면 커널은 그 프로세스를 exit(-1)로 끝내야 함 (bad-* 테스트). 커널 모드 fault는 시스템 콜 처리 중 유저 포인터를 그대로 썼다는 뜻</div>`
     : '<div class="note">page fault 없음</div>';
   $("tp-fault").querySelectorAll("a.jump").forEach(a => a.onclick = () => jump(+a.dataset.i));
 }
@@ -852,7 +986,7 @@ function drawTimeline() {
       const r = rowOf[e.by], y = r * rowH + 3 + rowH / 2;
       const mark = (c, h) => { g.fillStyle = css.getPropertyValue(c); g.fillRect(x + step / 2 - 1.5, y - h / 2, 3, h); };
       if (e.kind === "sys" && r != null) mark(PROC.has(e.name) ? "--proc" : ["write", "read"].includes(e.name) && e.args[0] < 2 ? "--muted" : "--file", 10);
-      if (e.kind === "fault" && r != null) mark("--dying", 14);
+      if (e.kind === "fault" && r != null) mark(e.vmok ? "--sleep" : "--dying", e.vmok ? 8 : 14);
       if (e.kind === "uentry" && r != null) mark("--run", 14);
       if (e.kind === "create" && r != null && rowOf[e.target] != null) {
         g.strokeStyle = css.getPropertyValue("--proc"); g.lineWidth = 1.5; g.beginPath();
@@ -941,6 +1075,9 @@ function load(name) {
   $("nextbad").textContent = nb ? `⚠ 다음 이상 (${nb})` : "✓ 이상 없음";
   $("nextbad").disabled = !nb;
   renderFaults(); renderLeaks();
+  $("tab-vm").hidden = !T.vm; $("f-vmf-wrap").hidden = !T.vm;
+  $("tab-vm").classList.toggle("alert", !!T.vmbad);
+  if (!T.vm && !$("tp-vm").hidden) showTab("fault");
   try { localStorage.setItem("uv-test", name); } catch (e) {}
   rebuild(false);
 }
@@ -948,6 +1085,7 @@ function showTab(k) {
   document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === k));
   document.querySelectorAll(".tp").forEach(p => p.hidden = p.id !== "tp-" + k);
   try { localStorage.setItem("uv-tab", k); } catch (e) {}
+  if (k === "vm" && view[idx]) renderVm(view[idx]);
 }
 document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => showTab(b.dataset.t));
 new ResizeObserver(() => document.documentElement.style.setProperty("--hh", document.querySelector("header").offsetHeight + "px"))
@@ -986,7 +1124,8 @@ const broken = Object.keys(TR).filter(n => !(TR[n].events || []).length);
 const names = Object.keys(TR).filter(n => !broken.includes(n));
 if (!names.length) {
   document.querySelector("main").innerHTML = '<div class="panel">' + (broken.length
-    ? `트레이스 수집에 실패함 (${esc(broken.join(", "))}). tools/thread-viz/run.sh userprog를 다시 실행할 것.`
+    ? `트레이스 수집에 실패함 (${esc(broken.join(", "))}). tools/thread-viz/run.sh ${VM_MODE ? "vm" : "userprog"}을 다시 실행할 것.`
+    : VM_MODE ? "vdata.js가 없음. Pintos 저장소 루트에서 tools/thread-viz/run.sh vm (또는 run.sh vm args-single 처럼 테스트 이름)을 먼저 실행할 것."
     : "udata.js가 없음. Pintos 저장소 루트에서 tools/thread-viz/run.sh userprog (또는 run.sh args-single 처럼 테스트 이름)를 먼저 실행할 것.") + "</div>";
 } else {
   for (const n of names) { T = TR[n]; prepare(T); }   // 목록에 이상 개수를 붙이려고 전부 미리 검사
@@ -1005,7 +1144,7 @@ if (!names.length) {
   $("src-panel").ontoggle = () => { try { localStorage.setItem("uv-src-open", $("src-panel").open ? "1" : "0"); } catch (e) {} };
   $("speed").onchange = () => { if (timer) { stop(); play(); } };
   $("slider").oninput = () => { stop(); idx = +$("slider").value; render(); };
-  $("f-boot").onchange = $("f-out").onchange = () => rebuild(true);
+  $("f-boot").onchange = $("f-out").onchange = $("f-vmf").onchange = () => rebuild(true);
   try { $("f-sched").checked = localStorage.getItem("uv-sched") !== "0"; } catch (e) {}
   $("f-sched").onchange = () => { try { localStorage.setItem("uv-sched", $("f-sched").checked ? "1" : "0"); } catch (e) {} render(); };
   document.addEventListener("keydown", e => {
@@ -1026,7 +1165,7 @@ if (!names.length) {
     if (i && Number.isFinite(+i) && +i !== idx) { stop(); idx = +i; render(); }
   });
   let tab = null; try { tab = localStorage.getItem("uv-tab"); } catch (e) {}
-  showTab(tab && $("tp-" + tab) ? tab : "stack");
+  showTab(tab && $("tp-" + tab) && !$("tab-" + tab)?.hidden ? tab : "stack");
   if (hi && Number.isFinite(+hi)) { idx = +hi; render(); }
 }
 </script>

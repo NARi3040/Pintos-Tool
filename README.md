@@ -57,6 +57,16 @@ tools/thread-viz/run.sh args-multiple fork-once   # 원하는 테스트만
 
 시스템 콜(인자, 반환값), fork/exec/wait/exit 프로세스 트리, argument passing 직후 유저 스택, page fault, 프로세스별 fd 표, 페이지/파일 누수를 `http://localhost:8000/uprog.html`에서 보여줌. 인자 전달, fork 반환값, wait 반환값, 잘못된 포인터 처리, 종료 메시지, 누수는 자동으로 검사해서 ⚠로 표시함. 자세한 내용은 [tools/thread-viz/README.md](tools/thread-viz/README.md)의 "Project 2" 절에 있음.
 
+### Project 3 (Virtual Memory)
+
+```bash
+tools/thread-viz/run.sh vm                        # tests/vm 전부 (VM 빌드)
+tools/thread-viz/run.sh lazy-anon swap-anon       # 원하는 테스트만
+tools/thread-viz/run.sh vm args-single            # Project 2 테스트를 VM 빌드로
+```
+
+Project 2 화면(`uprog.html?vm`)에 **가상 메모리** 탭이 붙음. 이벤트 시점의 프로세스별 페이지 표(종류, 쓰기 가능, lazy / 메모리 / swap / 파일로 내보냄)와 프레임 사용량을 보여 주고, page fault마다 `vm_try_handle_fault`가 무엇을 했는지(lazy 로딩, swap in, 스택 확장, 다른 페이지 내보냄)를 붙임. 처리 실패, 매핑 안 된 채 true 반환, rsp 아래·1MB 넘는 스택 확장, 읽기 전용 페이지 쓰기 허용 등은 ⚠로 표시함. swap 테스트는 fault가 많아 트레이스가 수 분~십여 분 걸림. 자세한 내용은 [tools/thread-viz/README.md](tools/thread-viz/README.md)의 "Project 3" 절에 있음.
+
 ### 디버거
 
 뷰어에서 이벤트를 고르고 **이 시점부터 디버그 ↗**를 누르면, 채점한 실행을 QEMU로 다시 재생해서 그 시점에 gdb로 멈춘 화면(`debug.html`)이 열림. 소스를 보며 한 줄씩 실행(next, step, finish), breakpoint, 변수·식 보기, 호출 스택을 쓸 수 있고, **거꾸로 실행**(이전 줄, 호출한 곳, 거꾸로 계속)도 됨. 터미널 gdb나 VS Code로 넘길 수도 있음. 자세한 내용은 [tools/thread-viz/README.md](tools/thread-viz/README.md)의 "디버거" 절에 있음.

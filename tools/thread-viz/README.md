@@ -1,6 +1,6 @@
 # thread-viz — Pintos 스레드 흐름 시각화
 
-KAIST Pintos (x86-64) Project 1 (Threads)용 도구임. 테스트를 gdb로 추적해서 스레드 생성, ready_list,
+KAIST Pintos (x86-64) Project 1 (Threads)용 도구임. Project 2 (User Programs), Project 3 (Virtual Memory)도 지원함 (아래 절). 테스트를 gdb로 추적해서 스레드 생성, ready_list,
 sleep_list, lock / semaphore / condition 대기 리스트, donation 흐름을 웹페이지에서 한 단계씩 보여줌.
 커널 코드는 수정하지 않음.
 
@@ -23,7 +23,7 @@ sleep_list, lock / semaphore / condition 대기 리스트, donation 흐름을 �
     ├── index.html               (런처: 테스트 골라 실행)
     ├── bin/qemu-system-x86_64   (QEMU 래퍼: 기록/재생, gdb 포트)
     ├── trace.py, viewer.html    (Project 1 트레이서, 뷰어)
-    ├── uprog.py, uprog.html     (Project 2 트레이서, 뷰어)
+    ├── uprog.py, uprog.html     (Project 2/3 트레이서, 뷰어)
     └── README.md
 ```
 
@@ -60,7 +60,7 @@ tools/thread-viz/run.sh priority-sema priority-condvar
 ### 런처 (인자 없이 실행)
 
 인자 없이 실행하면 서버(`server.py`)만 띄우고 `http://localhost:8000/index.html`을 브라우저로 엶. 열 수 없는 환경이면 주소만 출력함 (`NO_OPEN=1`이면 안 엶).
-페이지에서 Project 1 / Project 2를 고르고 테스트를 체크해서 실행함. 테스트 옆에는 지난 결과(PASS/FAIL)가 붙음.
+페이지에서 Project 1 / 2 / 3을 고르고 테스트를 체크해서 실행함. 테스트 옆에는 지난 결과(PASS/FAIL)가 붙음.
 
 - 실행 중에는 진행도와 `run.sh` 출력이 보이고, "중지"는 터미널의 Ctrl-C와 같음 (그때까지 저장)
 - 실행이 끝나면 "결과 보기"로 뷰어로 감
@@ -163,7 +163,7 @@ MLFQS 모드로 돈 테스트는 화면에 MLFQS 패널이 생김: 스레드별 
 |---|---|---|
 | `VIEW_PORT` | `8000` | 뷰어 서버 포트 |
 | `NO_OPEN` | `0` | `1`이면 인자 없이 실행할 때 브라우저를 열지 않고 주소만 출력 |
-| `TRACE_TIMEOUT` | `60` (mlfqs는 `900`, Project 2는 Make.tests 제한 시간의 2배, 최소 `120`) | 테스트 하나가 이 시간(초) 안에 안 끝나면 멈춘 것으로 보고 그때까지 저장함 |
+| `TRACE_TIMEOUT` | `60` (mlfqs는 `900`, Project 2는 Make.tests 제한 시간의 2배, 최소 `120`, Project 3은 최소 `900`) | 테스트 하나가 이 시간(초) 안에 안 끝나면 멈춘 것으로 보고 그때까지 저장함 |
 | `MLFQS` | `0` | `1`이면 mlfqs 테스트도 기본 목록과 자동 수집에 포함 |
 | `REBUILD` | `1` | `1`이면 측정 전에 커널 전체를 다시 빌드(`make -B`). `0`이면 바뀐 파일만 빌드 |
 | `AUTO` | `1` | `0`이면 트레이스가 없는 테스트를 자동으로 같이 수집하지 않고 지정한 테스트만 돌림 |
@@ -171,7 +171,7 @@ MLFQS 모드로 돈 테스트는 화면에 MLFQS 패널이 생김: 스레드별 
 | `REPLAY` | `1` | `1`이면 기록/재생 (위 설명). `0`이면 예전 방식 |
 | `JOBS` | 코어 수 / 2 | 동시에 돌릴 테스트 수 (`REPLAY=1`일 때만. `0`이면 1) |
 | `GDB_BASE` | `1234` | gdb 포트 시작 번호. 동시 실행 슬롯마다 `GDB_BASE`, `+1`, ... 을 씀 |
-| `TRACE_MAX_EVENTS` | `30000` | Project 2만. 이벤트가 이만큼 쌓이면 기록을 멈추고 커널은 끝까지 돌림 (누수 검사는 안 함) |
+| `TRACE_MAX_EVENTS` | `30000` | Project 2/3만. 이벤트가 이만큼 쌓이면 기록을 멈추고 커널은 끝까지 돌림 (누수 검사는 안 함) |
 | `BASELINE` | `0` | `1`이면 이번 효율 측정값을 `baseline.js`에 기준으로 저장 |
 | `GRADE` | `1` | `REPLAY=0`일 때만 씀. `1`이면 채점용으로 트레이스 없는 실행을 따로 돌림(동시 실행). `seq`면 트레이스 수집 뒤에 따로 돌림(코어가 적어 채점 타이밍이 흔들릴 때). `0`이면 생략하고 트레이스 실행 출력으로 채점 (빠르지만 타이밍 테스트가 틀리게 FAIL 날 수 있음) |
 
@@ -282,6 +282,53 @@ tools/thread-viz/run.sh args-multiple fork-once   # 원하는 테스트만. 이�
 | panic | 흔한 ASSERT(`is_thread`, `bitmap_all`, `!intr_context ()`, `lock_held_by_current_thread`, `is_interior` 등)는 원인 후보를 같이 보여 줌 |
 
 검사는 힌트임. 판정은 `make check` 결과를 따를 것.
+
+## Project 3 (Virtual Memory)
+
+`vm` 테스트를 `pintos/vm/build`에서 Project 2와 같은 트레이서(`uprog.py`)로 돌림. 결과는 `uprog.html?vm`에서 봄 (`vtraces/`, `vdata.js`). Project 2 화면과 검사는 그대로고, **가상 메모리** 탭과 fault 처리 결과가 붙음.
+
+```bash
+tools/thread-viz/run.sh vm                        # tests/vm, tests/vm/cow 전부
+tools/thread-viz/run.sh lazy-anon mmap-read       # 이름이 전부 tests/vm 테스트면 자동으로 이 모드
+tools/thread-viz/run.sh vm args-single fork-once  # Project 2 테스트를 VM 빌드로 (make check도 VM 빌드로 돌림)
+```
+
+- 기본은 Project 2처럼 `REPLAY=0`(채점 실행과 트레이스 실행을 따로)임
+- fault마다 훅이 여러 번 멈춰서 느림. lazy/mmap/pt 테스트는 수 초~수십 초지만 swap 테스트는 오래 걸림 (`swap-anon`: fault 약 1만 개, 15분 안팎). 그래서 트레이스 시간 제한이 최소 900초임. 시간 제한에 걸리면 그때까지의 트레이스를 저장하고, 채점은 따로 돈 실행 기준이라 영향 없음
+- 페이지 상태 변화는 그 변화를 일으킨 스레드의 다음 이벤트에 붙음. fault 처리 중 디스크 I/O로 다른 프로세스가 돌아도 그 fault 이벤트에 붙음
+
+### 기록하는 것
+
+학생이 만드는 SPT(해시 등)는 직접 읽지 않음. 스켈레톤에 원래 있는 함수에만 훅을 걸어 페이지마다 상태를 다시 만듦. 그래서 SPT를 어떤 자료구조로 만들었든 동작함. 함수 이름을 바꿨으면 그 부분만 빠짐 (`trace warning`).
+
+| 훅 | 알아내는 것 |
+|---|---|
+| `uninit_new` | SPT에 페이지가 들어감: va, 최종 타입(anon/file, MARKER 비트), 초기화 함수(`lazy_load_segment` 등). 쓰기 가능 여부는 `vm_alloc_page_with_initializer`의 `writable` 인자 |
+| `anon_initializer`, `file_backed_initializer` | lazy 로딩 (uninit → anon/file) |
+| `pml4_set_page`, `pml4_clear_page`, `pml4_destroy` | 프레임 매핑/해제 (kva, 쓰기 가능). pml4로 어느 프로세스 것인지 찾음 |
+| `anon_swap_out`/`_in`, `file_backed_swap_out`/`_in` | swap out / in (file 페이지는 파일로 내보냄) |
+| `uninit_destroy`, `anon_destroy`, `file_backed_destroy` | SPT에서 제거 |
+| `vm_try_handle_fault` 복귀 | fault 주소, 유저/커널, 읽기/쓰기, 처리 결과(true/false). VM 빌드에서는 `page_fault` 대신 여기서 fault를 기록함 |
+
+### 화면
+
+- **가상 메모리 탭**: 이벤트 시점의 프로세스별 페이지 표. 연속 페이지는 범위로 묶음. 종류(`uninit → anon` 등), 쓰기 가능, 상태(lazy / 메모리 / swap 디스크 / 파일로 내보냄 / 매핑 해제됨), 초기화 함수 또는 kva. 이번 이벤트에서 바뀐 줄은 노란색. 위쪽에 프레임 사용량(/ user pool 크기), swap된 페이지 수, 누적 fault·swap 횟수
+- **page fault**: 처리했으면 무엇을 했는지 붙임 (`lazy 로딩 (anon, lazy_load_segment)`, `swap in`, `스택 확장`, `쓰기 권한 처리 (copy-on-write)`, `다른 페이지 n개 내보냄`). 타임라인에서 처리된 fault는 작은 주황 표시
+- 위쪽 "처리된 page fault 숨김"으로 정상 처리된 fault를 이벤트 목록에서 뺄 수 있음 (swap 테스트처럼 fault가 수천 개일 때)
+
+### 자동 검사 (⚠)
+
+| 검사 | 기준 |
+|---|---|
+| 처리 안 됨 | SPT에 있는 페이지(아직 안 올림, swap됨, 파일로 내보냄)의 not-present fault인데 `vm_try_handle_fault`가 false |
+| 매핑 없이 true | true를 반환했는데 그 페이지가 프레임에 매핑 안 됨 (같은 fault가 계속 남) |
+| 잘못된 주소 처리 | NULL 근처나 커널 주소 fault에 true |
+| 쓰기 금지 | `writable=false` 페이지의 쓰기 fault에 true, 또는 쓰기 fault를 처리하며 읽기 전용으로 매핑 |
+| 스택 확장 | 유저 rsp - 8보다 아래 주소로 스택을 늘림 (`pt-grow-bad`), `USER_STACK - 1MB` 아래까지 늘림 |
+| 스택 확장 안 함 | 유저 코드가 rsp - 8 이상, `USER_STACK - 1MB` 안의 SPT에 없는 주소에서 fault를 냈는데 false (`pt-grow-stack`) |
+| 처리 중 종료 | `vm_try_handle_fault` 안(또는 그 전 `page_fault`)에서 exit하면 그 fault를 "처리 중 종료"로 남김 |
+| swap in | 내보낸 적 없는 페이지를 swap in (참고) |
+| 누수 | Project 2와 같음. 프레임(palloc), `struct page`/`struct frame`/해시 버킷(malloc)이 안 풀리면 잡힘 |
 
 ## 디버거 (`debug.html`)
 

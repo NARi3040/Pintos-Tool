@@ -13,7 +13,7 @@ import ctypes, hashlib, os, re, shutil, socket, subprocess, tempfile, threading,
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PINTOS = os.path.realpath(os.path.join(HERE, "..", "..", "pintos"))   # gdb가 주는 경로도 realpath라 맞춰 둠
-MODES = {"threads": ("traces", "threads"), "userprog": ("utraces", "userprog")}
+MODES = {"threads": ("traces", "threads"), "userprog": ("utraces", "userprog"), "vm": ("vtraces", "vm")}
 STEPS = {"continue": "-exec-continue", "next": "-exec-next", "step": "-exec-step", "finish": "-exec-finish",
          "stepi": "-exec-step-instruction", "nexti": "-exec-next-instruction"}
 SRC_EXT = (".c", ".h", ".S", ".s", ".lds", ".ld")
@@ -250,7 +250,7 @@ class Session:
                   "-gdb-set print elements 64"):
             self.mi(c)
         self.mi("-target-select remote localhost:%d" % self.port, timeout=20)
-        if self.user_prog and self.mode == "userprog" and os.path.exists(os.path.join(self.build, self.user_prog)):
+        if self.user_prog and self.mode != "threads" and os.path.exists(os.path.join(self.build, self.user_prog)):
             self.cli("add-symbol-file %s" % self.user_prog)
         # 끝까지 가면 QEMU가 꺼져서 세션이 끝나므로 power_off에서 멈춤 (panic도 결국 여기로 옴)
         self.end_bp = self.mi("-break-insert power_off").get("bkpt", {}).get("number")

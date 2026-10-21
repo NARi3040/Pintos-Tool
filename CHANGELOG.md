@@ -3,6 +3,19 @@
 릴리스 노트 원본임. 태그를 만들 때 해당 버전 절을 태그 메시지로 씀 (CONTRIBUTING.md 5절).
 첫 줄은 구버전 `update.py`가 업데이트할 때 보여주는 한 줄이므로, 사용자가 꼭 알아야 할 변화를 담음.
 
+## v20
+
+Project 3 (Virtual Memory) 지원: `run.sh vm`으로 vm 테스트를 추적하고, 프로세스별 페이지 상태와 page fault 처리 결과를 보여 줌
+
+새 기능
+- `run.sh vm` (또는 tests/vm 테스트 이름): `pintos/vm/build`에서 Project 2 트레이서로 실행. `run.sh vm args-single`처럼 Project 2 테스트를 VM 빌드로도 돌림. 런처에 Project 3 추가
+- `uprog.html?vm`의 가상 메모리 탭: 이벤트 시점의 프로세스별 페이지 표(종류, 쓰기, lazy / 메모리 / swap / 파일로 내보냄)와 프레임 사용량. 학생 SPT를 읽지 않고 스켈레톤 함수(`uninit_new`, `pml4_set_page` 등) 훅으로 재구성해서 SPT 구조와 무관함
+- page fault마다 `vm_try_handle_fault` 결과와 한 일(lazy 로딩, swap in, 스택 확장, 다른 페이지 내보냄)
+- 자동 검사: SPT에 있는 페이지인데 처리 실패, 매핑 없이 true, 커널/NULL 주소 처리, 읽기 전용 페이지 쓰기 허용, rsp 아래·1MB 넘는 스택 확장, 늘려야 할 스택을 안 늘림. fault 처리 중에 exit하면 그 fault도 남김
+
+고친 것
+- Project 2/3 트레이서: QEMU가 같은 브레이크포인트를 가끔 두 번 알려서 콘솔 글자, fault, malloc/free 이벤트가 하나씩 더 찍히던 것 (`mmap-over-ddata` 같은 종료 메시지 경고)
+
 ## v19
 
 Project 2 누수 검사가 free 안 한 malloc 블록도 잡고, 누수마다 할당 시점과 그 프로세스가 종료할 때 안 풀었는지를 보여 줌

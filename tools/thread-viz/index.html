@@ -25,7 +25,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 syst
 h1 { font-size: 20px; margin: 4px 0 2px; }
 .sub { color: var(--muted); margin: 0 0 14px; }
 .sub a { color: var(--accent); }
-.modes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 12px; }
 @media (max-width: 700px) { .modes { grid-template-columns: 1fr; } }
 .mode { text-align: left; border: 2px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text);
   padding: 14px 16px; cursor: pointer; font: inherit; }
@@ -65,10 +65,11 @@ details summary { cursor: pointer; color: var(--muted); }
 <body>
 <div class="wrap">
   <h1>Pintos thread-viz</h1>
-  <p class="sub">테스트를 골라 실행하면 gdb로 추적해서 뷰어에 보여줌. 결과만 보려면 <a href="viewer.html">Project 1 뷰어</a> · <a href="uprog.html">Project 2 뷰어</a></p>
+  <p class="sub">테스트를 골라 실행하면 gdb로 추적해서 뷰어에 보여줌. 결과만 보려면 <a href="viewer.html">Project 1 뷰어</a> · <a href="uprog.html">Project 2 뷰어</a> · <a href="uprog.html?vm">Project 3 뷰어</a></p>
   <div class="modes">
     <button class="mode" data-m="threads"><b>Project 1 — Threads</b><span>alarm, priority, mlfqs. 스레드 상태, ready_list, lock/sema 대기, donation</span></button>
     <button class="mode" data-m="userprog"><b>Project 2 — User Programs</b><span>args, syscall, fork/exec/wait, 파일. 유저 스택, 프로세스 트리, page fault, 누수</span></button>
+    <button class="mode" data-m="vm"><b>Project 3 — Virtual Memory</b><span>lazy 로딩, swap, mmap, 스택 확장. 프로세스별 SPT·프레임, fault 처리 결과</span></button>
   </div>
   <div class="panel" id="status" hidden></div>
   <div class="panel">
@@ -87,12 +88,13 @@ details summary { cursor: pointer; color: var(--muted); }
 const $ = id => document.getElementById(id);
 const esc = t => String(t ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const store = (k, v) => { try { v === undefined ? (v = localStorage.getItem(k)) : localStorage.setItem(k, v); } catch (e) { v = null; } return v; };
-let TESTS = null, mode = store("tv-mode") === "userprog" ? "userprog" : "threads", busy = false, wasRunning = false;
-const sel = { threads: new Set(), userprog: new Set() };
-const PAGE = { threads: "viewer.html", userprog: "uprog.html" };
+let TESTS = null, mode = ["userprog", "vm"].includes(store("tv-mode")) ? store("tv-mode") : "threads", busy = false, wasRunning = false;
+const sel = { threads: new Set(), userprog: new Set(), vm: new Set() };
+const PAGE = { threads: "viewer.html", userprog: "uprog.html", vm: "uprog.html?vm" };
 const ALL_NOTE = {
   threads: "전체 실행: alarm / priority / bench 전부 (mlfqs는 체크했을 때만). 첫 실행 2~3분",
   userprog: "전체 실행: tests/userprog, filesys/base 전부 (multi-oom 제외). 몇 분 걸림",
+  vm: "전체 실행: tests/vm 전부 (VM 빌드). swap 테스트는 page fault가 많아 오래 걸림. Project 2 테스트를 VM 빌드로 돌리려면 골라서 실행",
 };
 
 function renderList() {
