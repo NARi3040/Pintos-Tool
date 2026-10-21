@@ -295,7 +295,9 @@ run_one() {
         # 제한 시간은 Make.tests 값(-T) 그대로. 추적은 gdb 훅 때문에 느려서 두 배(최소 120초)로 잡음
         ck="$PINTOS/${TPATH[$t]}.ck"; gto=$(sed -n 's/.* -T \([0-9]*\) .*/\1/p' <<< "${TCMD[$t]}"); gto=${gto:-60}
         # Project 3은 fault마다 훅이 여러 번 멈춰서 swap 테스트가 특히 느림 (swap-anon: fault 1만 개, 15분 안팎). 최소 900초
-        local tmin=$([[ ${TPATH[$t]} == tests/vm/* ]] && echo 900 || echo 120)
+        # 기록/재생은 최소 1800초: 재생은 디스크 I/O가 느려 느린 PC(WSL2 등)에선 syn-read가 600초(-T 300의 두 배)를 넘김 (#25).
+        # 정상 기록은 power_off까지 재생되고 잘린 기록은 재생 시작 때 바로 실패해서, 멈춘 커널을 잡을 짧은 제한이 필요 없음
+        local tmin=$([ "$REPLAY" = 1 ] && echo 1800 || { [[ ${TPATH[$t]} == tests/vm/* ]] && echo 900 || echo 120; })
         to="${TRACE_TIMEOUT:-$(( gto * 2 > tmin ? gto * 2 : tmin ))}"
     elif [[ $t == mlfqs-* ]]; then flags="-mlfqs"; ck="$PINTOS/tests/threads/mlfqs/$t.ck"; to="${TRACE_TIMEOUT:-900}"; gto=480
     else ck="$PINTOS/tests/threads/$t.ck"; to="${TRACE_TIMEOUT:-60}"; gto=60; fi
