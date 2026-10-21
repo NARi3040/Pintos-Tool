@@ -28,7 +28,8 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; pa
 #src div.on { background: var(--hl); }
 #src .ln { display: inline-block; width: 42px; color: var(--muted); text-align: right; margin-right: 12px; user-select: none; }
 /* 위반 목록: 오류는 빨간 표면, 참고는 주황 표면. 아이콘은 왼쪽에 고정 (본문 안 <code> 줄바꿈이 안 깨지게) */
-.viol { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+/* 오류·참고는 이번 이벤트 제목 위에 먼저 보임 */
+.viol { margin: 0 0 12px; display: flex; flex-direction: column; gap: 6px; }
 .viol > div { position: relative; background: var(--err-soft); color: var(--err); border-radius: 12px; padding: 10px 12px 10px 36px; font-size: 14px; }
 .viol > div::before { content: ""; position: absolute; left: 12px; top: 12px; width: 16px; height: 16px; background: currentColor;
   -webkit-mask: var(--i-alert) center / contain no-repeat; mask: var(--i-alert) center / contain no-repeat; }
@@ -138,7 +139,7 @@ pre.box { max-height: 320px; overflow: auto; margin: 0; white-space: pre-wrap; }
 <div class="toast" id="toast" role="status"></div>
 <main>
   <div>
-    <div class="panel now"><h2>이번 이벤트</h2><div id="desc"></div><div id="stack" class="mono"></div><div id="viol"></div>
+    <div class="panel now"><div id="viol"></div><h2>이번 이벤트</h2><div id="desc"></div><div id="stack" class="mono"></div>
       <details id="src-panel"><summary>소스 (call stack 항목을 누르면 바뀌어요)</summary>
         <div id="src-title" class="mono"></div><div id="src" class="mono"></div></details></div>
     <div class="panel"><h2>프로세스 트리 — 이벤트 직후 (부모 → 자식)</h2><ul class="tree" id="tree"></ul></div>
