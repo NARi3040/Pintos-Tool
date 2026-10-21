@@ -7,7 +7,17 @@
 
 고친 것
 - Project 2 종료 메시지 검사: `sys_exit`에서 `이름: exit(n)`을 찍고 `thread_exit`를 부르는 구현을 "종료 메시지를 출력하지 않았어요"로 잘못 잡던 문제. 메시지가 `thread_exit` 전에 찍히든 `process_exit` 안에서 찍히든 정상으로 봐요 (`uprog.html`)
-- `pintos/` 폴더 안(`pintos/tools/thread-viz`)에 풀었을 때 `../../pintos/utils/*`를 못 찾던 문제. 그 자리에 `utils/`, `threads/`가 있으면 그 폴더를 pintos로 써요. 둘 다 없으면 안내를 띄우고 멈춰요 (`run.sh`, `server.py`, `debug.py`, `bench.py`)
+- `pintos/` 폴더 안(`pintos/tools/thread-viz`)에 풀었을 때 `../../pintos/utils/*`를 못 찾던 문제. 그 자리에 `utils/`, `threads/`가 있으면 그 폴더를 pintos로 써요. 둘 다 없으면 업데이트 확인만 하고 안내를 띄운 뒤 멈춰요 (`run.sh`, `server.py`, `debug.py`, `bench.py`)
+
+문서
+- Windows(Docker Desktop + VS Code Dev Container) 설치·실행 안내 `WINDOWS.md`를 추가했어요
+
+## v21
+
+`REPLAY=1` 트레이스가 느린 PC(WSL2 등)에서 중간에 시간 초과로 잘리던 문제를 고쳤어요
+
+고친 것
+- 기록/재생(`REPLAY=1`) 트레이스의 제한 시간을 최소 1800초로 늘렸어요. 재생은 디스크 I/O가 느려 syn-read가 600초 안에 끝나지 않고 잘렸어요 (#25). 재생은 기록이 끝난 지점에서 멈추므로 짧은 제한이 필요 없어요
 
 ## v20
 
