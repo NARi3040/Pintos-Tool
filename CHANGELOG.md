@@ -3,6 +3,30 @@
 릴리스 노트 원본이에요. 태그를 만들 때 해당 버전 절을 태그 메시지로 써요 (CONTRIBUTING.md 5절).
 첫 줄은 구버전 `update.py`가 업데이트할 때 보여 주는 한 줄이므로, 사용자가 꼭 알아야 할 변화를 담아요.
 
+## v23
+
+Project 3 검사를 실제 VM 구현(정답 구현과 일부러 틀린 구현)으로 돌려 보고 넓혔어요. mmap/munmap, fork 때 SPT 복사, 프레임 겹침, 종료 때 SPT 정리를 잡고, 잘못 잡던 경우를 고쳤어요
+
+새 기능
+- mmap 반환값 검사: NULL·4KB 경계 아닌 addr, length 0, 커널 영역, fd 0·1·안 열린 fd, 4KB 경계 아닌 offset, 기존 페이지와 겹침인데 성공하면 오류. 실패하면서 원래 있던 페이지(코드, 스택, 다른 mmap)를 지우면 오류 (`mmap-over-*`, `mmap-overlap`이 통과해도 잡혀요)
+- munmap 뒤에도 그 매핑의 페이지가 SPT에 남으면 오류
+- fork한 자식이 처음 유저 모드로 갈 때 부모 SPT 페이지가 자식에 없으면 오류 (`supplemental_page_table_copy`가 uninit 페이지를 빼먹는 등)
+- 다른 페이지가 아직 쓰기 가능으로 매핑한 프레임을 또 쓰기 가능으로 매핑하면 오류 (내보낼 때 `pml4_clear_page`를 빠뜨림)
+- `pml4_destroy` 때 destroy 안 된 SPT 페이지가 남으면 참고 (`supplemental_page_table_kill`)
+- VM 빌드에서 유저 프로그램을 못 띄우고 패닉이면 `uninit_new`/`pml4_set_page`가 불렸는지로 다음에 볼 곳을 알려 줘요 (과제 시작 직후)
+- 누수 검사 탭: `hash_init`이 만든 버킷 배열이 남으면 `hash_clear`/`hash_destroy` 차이를 알려 줘요. 패닉 힌트에 빈 리스트 `list_front` 등 추가 (확인과 사용 사이 인터럽트)
+
+고친 것
+- gcc 14 이상에서 VM 스켈레톤(`vm/vm.c` `spt_remove_page`)이 return-mismatch 에러로 빌드되지 않던 문제 (`run.sh`)
+- mmap의 length를 32비트로 잘라 기록하던 문제 (`mmap-kernel`). mmap 반환값은 포인터로 보여 줘요 (`NULL (MAP_FAILED)`)
+- fault 중에 file 페이지를 SPT에 넣는 구현을 "스택 확장"으로 보고 rsp/1MB 오류를 내던 문제. 스택 확장은 새 anon 페이지일 때만이에요
+- lazy 로딩에 `file_backed_swap_in`을 쓰는 구현에서 "내보낸 적 없는데 swap_in" 경고와 "swap in" 표시가 나던 문제. 경고는 anon 페이지만, swap in 표시는 내보낸 적이 있을 때만이에요
+- 시스템 콜 버퍼가 아직 스택 확장 전인 주소면(`pt-grow-stk-sc`) 잘못된 포인터로 보던 문제
+- munmap 등으로 같은 묶음에서 지운 페이지의 fault를 "SPT에 있는데 처리 안 함"으로 잡던 문제
+- copy-on-write 쓰기 fault에서 매핑을 다시 안 하는 구현을 "매핑 변화 없음"으로 표시하던 문제
+- 채점은 통과했는데 트레이스만 시간 제한에 걸린 경우를 "끝나지 않았어요" 오류로 잡던 문제. 이제 참고로 "추적이 느려 잘렸어요"라고 알려 줘요
+- swap 테스트 트레이스 제한 시간을 최소 1800초로 늘렸어요. 정상 구현도 여러 테스트를 같이 돌리면 900초 안에 못 끝내고 잘렸어요 (`run.sh`)
+
 ## v22
 
 Project 2 종료 메시지 검사가 정상 구현을 오류로 잡던 문제를 고쳤고, `pintos/` 폴더 안에 풀어도 동작해요. 런처에서 고른 테스트 결과만 모아 볼 수 있어요

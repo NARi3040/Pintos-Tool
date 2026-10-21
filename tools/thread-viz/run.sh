@@ -111,9 +111,10 @@ BUILD="$KDIR/build"
 # gcc 14부터 원본 Pintos 코드의 경고 두 개(mmu.c의 int-conversion, stdio.c의 incompatible-pointer-types)가 에러가 됨.
 # 그런 gcc(최신 호스트)에서만 경고로 되돌림. Make.config의 WARNINGS를 그대로 쓰고 끝에 덧붙임
 # 유저 프로그램 라이브러리(lib/user/console.c)의 implicit-function-declaration도 같은 이유로 에러가 됨
+# VM 스켈레톤(vm/vm.c spt_remove_page의 void 함수에서 return true)의 return-mismatch도 같음
 WARN=()
 if [ "$(gcc -dumpversion 2>/dev/null | cut -d. -f1)" -ge 14 ] 2>/dev/null; then
-    WARN=("WARNINGS=-Wall -W -Wstrict-prototypes -Wmissing-prototypes -Wsystem-headers -Wno-error=int-conversion -Wno-error=incompatible-pointer-types -Wno-error=implicit-function-declaration")
+    WARN=("WARNINGS=-Wall -W -Wstrict-prototypes -Wmissing-prototypes -Wsystem-headers -Wno-error=int-conversion -Wno-error=incompatible-pointer-types -Wno-error=implicit-function-declaration -Wno-error=return-mismatch")
 fi
 # kernel.lds.s는 make 내장 규칙(cpp threads/kernel.lds.S > threads/kernel.lds.s)으로 만들어짐.
 # Windows 폴더를 마운트한 컨테이너(대소문자 구분 없음)에서는 build/threads/kernel.lds.s가 있으면 make가 그걸 kernel.lds.S로 잡아서
@@ -297,10 +298,11 @@ run_one() {
     if [ $MODE != threads ]; then
         # 제한 시간은 Make.tests 값(-T) 그대로. 추적은 gdb 훅 때문에 느려서 두 배(최소 120초)로 잡음
         ck="$PINTOS/${TPATH[$t]}.ck"; gto=$(sed -n 's/.* -T \([0-9]*\) .*/\1/p' <<< "${TCMD[$t]}"); gto=${gto:-60}
-        # Project 3은 fault마다 훅이 여러 번 멈춰서 swap 테스트가 특히 느림 (swap-anon: fault 1만 개, 15분 안팎). 최소 900초
+        # Project 3은 fault마다 훅이 여러 번 멈춰서 swap 테스트가 특히 느림 (swap-anon: fault 1만 개, 15분 안팎). 최소 900초,
+        # swap-*는 최소 1800초 (여러 테스트를 같이 돌리면 900초 안에 못 끝내고 잘림)
         # 기록/재생은 최소 1800초: 재생은 디스크 I/O가 느려 느린 PC(WSL2 등)에선 syn-read가 600초(-T 300의 두 배)를 넘김 (#25).
         # 정상 기록은 power_off까지 재생되고 잘린 기록은 재생 시작 때 바로 실패해서, 멈춘 커널을 잡을 짧은 제한이 필요 없음
-        local tmin=$([ "$REPLAY" = 1 ] && echo 1800 || { [[ ${TPATH[$t]} == tests/vm/* ]] && echo 900 || echo 120; })
+        local tmin=$([ "$REPLAY" = 1 ] && echo 1800 || { [[ ${TPATH[$t]} == tests/vm/swap-* ]] && echo 1800 || { [[ ${TPATH[$t]} == tests/vm/* ]] && echo 900 || echo 120; }; })
         to="${TRACE_TIMEOUT:-$(( gto * 2 > tmin ? gto * 2 : tmin ))}"
     elif [[ $t == mlfqs-* ]]; then flags="-mlfqs"; ck="$PINTOS/tests/threads/mlfqs/$t.ck"; to="${TRACE_TIMEOUT:-900}"; gto=480
     else ck="$PINTOS/tests/threads/$t.ck"; to="${TRACE_TIMEOUT:-60}"; gto=60; fi

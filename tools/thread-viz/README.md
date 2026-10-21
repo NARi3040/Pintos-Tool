@@ -299,7 +299,7 @@ tools/thread-viz/run.sh vm args-single fork-once  # Project 2 테스트를 VM �
 ```
 
 - 기본은 Project 2처럼 `REPLAY=0`(채점 실행과 트레이스 실행을 따로)이에요
-- fault마다 훅이 여러 번 멈춰서 느려요. lazy/mmap/pt 테스트는 수 초~수십 초지만 swap 테스트는 오래 걸려요 (`swap-anon`: fault 약 1만 개, 15분 안팎). 그래서 트레이스 시간 제한이 최소 900초예요. 시간 제한에 걸리면 그때까지의 트레이스를 저장하고, 채점은 따로 돈 실행 기준이라 영향이 없어요
+- fault마다 훅이 여러 번 멈춰서 느려요. lazy/mmap/pt 테스트는 수 초~수십 초지만 swap 테스트는 오래 걸려요 (`swap-anon`: fault 약 1만 개, 15분 안팎). 그래서 트레이스 시간 제한이 최소 900초(swap 테스트는 1800초)예요. 시간 제한에 걸리면 그때까지의 트레이스를 저장하고, 채점은 따로 돈 실행 기준이라 영향이 없어요
 - 페이지 상태 변화는 그 변화를 일으킨 스레드의 다음 이벤트에 붙어요. fault 처리 중 디스크 I/O로 다른 프로세스가 돌아도 그 fault 이벤트에 붙어요
 
 ### 기록하는 것
@@ -314,11 +314,12 @@ tools/thread-viz/run.sh vm args-single fork-once  # Project 2 테스트를 VM �
 | `anon_swap_out`/`_in`, `file_backed_swap_out`/`_in` | swap out / in (file 페이지는 파일로 내보냄) |
 | `uninit_destroy`, `anon_destroy`, `file_backed_destroy` | SPT에서 제거 |
 | `vm_try_handle_fault` 복귀 | fault 주소, 유저/커널, 읽기/쓰기, 처리 결과(true/false). VM 빌드에서는 `page_fault` 대신 여기서 fault를 기록해요 |
+| `mmap`/`munmap` 시스템 콜 | 인자와 반환값. 반환값은 포인터라 rax 전체를 써요 (`NULL (MAP_FAILED)`). length는 64비트 그대로 남겨요 (`mmap-kernel`) |
 
 ### 화면
 
 - **가상 메모리 탭**: 이벤트 시점의 프로세스별 페이지 표예요. 연속 페이지는 범위로 묶어요. 종류(`uninit → anon` 등), 쓰기 가능, 상태(lazy / 메모리 / swap 디스크 / 파일로 내보냄 / 매핑 해제됨), 초기화 함수 또는 kva를 보여 줘요. 이번 이벤트에서 바뀐 줄은 노란색이에요. 위쪽에 프레임 사용량(/ user pool 크기), swap된 페이지 수, 누적 fault·swap 횟수가 있어요
-- **page fault**: 처리했으면 무엇을 했는지 붙여요 (`lazy 로딩 (anon, lazy_load_segment)`, `swap in`, `스택 확장`, `쓰기 권한 처리 (copy-on-write)`, `다른 페이지 n개 내보냄`). 타임라인에서 처리된 fault는 작은 주황 표시예요
+- **page fault**: 처리했으면 무엇을 했는지 붙여요 (`lazy 로딩 (anon, lazy_load_segment)`, `swap in`, `파일에서 다시 올림`, `스택 확장`, `쓰기 권한 처리 (copy-on-write)`, `다른 페이지 n개 내보냄`). 스택 확장은 fault 중에 새 anon 페이지가 생긴 경우예요. swap in은 내보낸 적이 있는 페이지일 때만이고, lazy 로딩에 `file_backed_swap_in`을 다시 쓰는 구현도 lazy 로딩으로 보여요. 타임라인에서 처리된 fault는 작은 주황 표시예요
 - 위쪽 "처리된 page fault 숨김"으로 정상 처리된 fault를 이벤트 목록에서 뺄 수 있어요 (swap 테스트처럼 fault가 수천 개일 때)
 
 ### 자동 검사
@@ -332,8 +333,15 @@ tools/thread-viz/run.sh vm args-single fork-once  # Project 2 테스트를 VM �
 | 스택 확장 | 유저 rsp - 8보다 아래 주소로 스택을 늘림 (`pt-grow-bad`), `USER_STACK - 1MB` 아래까지 늘림 |
 | 스택 확장 안 함 | 유저 코드가 rsp - 8 이상, `USER_STACK - 1MB` 안의 SPT에 없는 주소에서 fault를 냈는데 false (`pt-grow-stack`) |
 | 처리 중 종료 | `vm_try_handle_fault` 안(또는 그 전 `page_fault`)에서 exit하면 그 fault를 "처리 중 종료"로 남겨요 |
-| swap in | 내보낸 적 없는 페이지를 swap in (참고) |
-| 누수 | Project 2와 같아요. 프레임(palloc), `struct page`/`struct frame`/해시 버킷(malloc)이 안 풀리면 잡혀요 |
+| swap in | 내보낸 적 없는 anon 페이지를 swap in (참고). file 페이지는 언제든 파일에서 다시 읽을 수 있어서 안 봐요 |
+| 프레임 겹침 | 다른 페이지가 아직 쓰기 가능으로 매핑한 프레임(kva)을 또 쓰기 가능으로 매핑함. 내보낼 때 `pml4_clear_page`를 안 했거나 같은 프레임을 두 번 줌 (copy-on-write처럼 둘 다 읽기 전용이면 안 봐요) |
+| mmap 반환값 | addr가 NULL이거나 4KB 경계가 아님, length 0, 커널 영역에 걸침, fd가 0·1이거나 안 열림, offset이 4KB 경계가 아님, 이미 SPT에 있는 페이지와 겹침 중 하나인데 성공. 성공했는데 요청한 addr가 아님, 범위의 페이지가 SPT에 없음 (참고) |
+| mmap 실패 정리 | 실패한 mmap이 원래 SPT에 있던 페이지(코드, 스택, 다른 mmap)를 지움 (`mmap-over-*`, `mmap-overlap`) |
+| munmap | `munmap` 뒤에도 그 매핑의 페이지가 SPT에 남음 |
+| fork 복사 | fork한 자식이 처음 유저 모드로 갈 때 부모 SPT의 페이지가 자식 SPT에 없음 (`supplemental_page_table_copy`가 uninit 페이지를 빼먹는 등) |
+| 종료 때 SPT | `pml4_destroy` 때 SPT에 destroy 안 된 페이지가 남음 (참고). `supplemental_page_table_kill`이 페이지마다 destroy를 불러야 해요 |
+| load 실패 | 유저 프로그램이 못 뜨고 패닉이면 `uninit_new`, `pml4_set_page`가 불렸는지로 다음에 볼 곳을 알려 줘요 (과제 초반) |
+| 누수 | Project 2와 같아요. 프레임(palloc), `struct page`/`struct frame`/해시 버킷(malloc)이 안 풀리면 잡혀요. `hash_clear`만 하고 `hash_destroy`를 안 해서 남은 버킷 배열은 따로 알려 줘요 |
 
 ## 디버거 (`debug.html`)
 

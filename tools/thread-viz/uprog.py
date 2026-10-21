@@ -34,7 +34,7 @@ STATUS = ["RUNNING", "READY", "BLOCKED", "DYING"]
 # 인자 형태: i=int, u=unsigned, s=문자열 포인터, b=버퍼 포인터(다음 인자가 크기), p=포인터
 SIG = {"halt": "", "exit": "i", "fork": "s", "exec": "s", "wait": "i", "create": "su", "remove": "s",
        "open": "s", "filesize": "i", "read": "ibu", "write": "ibu", "seek": "iu", "tell": "i", "close": "i",
-       "mmap": "puiii", "munmap": "p", "chdir": "s", "mkdir": "s", "readdir": "ip", "isdir": "i",
+       "mmap": "pziii", "munmap": "p", "chdir": "s", "mkdir": "s", "readdir": "ip", "isdir": "i",
        "inumber": "i", "symlink": "ss", "dup2": "ii", "mount": "sii", "umount": "s"}
 # 시스템 콜 번호 -> 이름 (syscall-nr.h의 enum을 그대로 읽음). 아직 syscall.c가 SYS_*를 안 쓰면(과제 시작 전)
 # 디버그 정보에 enum이 없으므로 syscall-nr.h 순서대로 적은 SIG의 키를 씀
@@ -387,7 +387,7 @@ def on_syscall():
         if c == "i":
             v = struct.unpack("<i", struct.pack("<I", v & 0xffffffff))[0]
         elif c == "u":
-            v &= 0xffffffff
+            v &= 0xffffffff   # z(size_t)는 64비트 그대로 (mmap-kernel이 아주 큰 length를 넘김)
         args.append(v)
         if c == "s":
             strs[k] = read_str(v) if v < KERN_BASE else None
