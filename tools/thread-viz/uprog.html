@@ -4,192 +4,164 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pintos Userprog Viewer</title>
+<link rel="stylesheet" href="ui.css">
 <style>
-:root {
-  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #6b7385; --line: #dde1e8;
-  --run: #2f9e5b; --ready: #3b6fd8; --blocked: #8a8f9c; --sleep: #b07a1f; --dying: #c94a4a;
-  --hl: #fff3c4; --accent: #3b6fd8; --warn: #b07a1f; --proc: #7a4fd0; --file: #2a8a9a;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #14171d; --panel: #1c2028; --text: #e3e6ec; --muted: #8b93a5; --line: #2c323d;
-    --run: #3fbf72; --ready: #5b8cf0; --blocked: #6b7180; --sleep: #d29a3a; --dying: #e06666;
-    --hl: #4a4220; --accent: #5b8cf0; --warn: #d29a3a; --proc: #a07cf0; --file: #4bb8c8;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #14171d; --panel: #1c2028; --text: #e3e6ec; --muted: #8b93a5; --line: #2c323d;
-  --run: #3fbf72; --ready: #5b8cf0; --blocked: #6b7180; --sleep: #d29a3a; --dying: #e06666;
-  --hl: #4a4220; --accent: #5b8cf0; --warn: #d29a3a; --proc: #a07cf0; --file: #4bb8c8;
-}
-* { box-sizing: border-box; }
-body { overflow-anchor: none; margin: 0; background: var(--bg); color: var(--text);
-  font: 14px/1.45 system-ui, "Noto Sans KR", sans-serif; }
-code, .mono { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 12.5px; }
-header { padding: 8px 16px; display: flex; flex-direction: column; gap: 6px;
-  background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; }
-.hrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.hrow .grow { flex: 1; }
-header h1 { font-size: 15px; margin: 0 6px 0 0; }
-header a { color: var(--accent); font-size: 13px; }
+body { overflow-anchor: none; }
 #test { max-width: min(460px, 100%); }
-select, button { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
-  border-radius: 6px; padding: 4px 9px; cursor: pointer; }
-button:hover { border-color: var(--accent); }
-button:disabled { opacity: .55; cursor: default; border-color: var(--line); }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; min-width: 76px; }
-label.chk { color: var(--muted); font-size: 13px; display: flex; gap: 4px; align-items: center; }
-#slider { flex: 1 1 200px; min-width: 120px; accent-color: var(--accent); }
+#play { min-width: 88px; }
+#slider { flex: 1 1 200px; min-width: 120px; }
 #pos { color: var(--muted); min-width: 120px; }
-main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; padding: 12px 16px; align-items: start; }
+#summary { color: var(--muted); font-size: 13px; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; padding: 16px 24px; align-items: start; }
 @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 12px; min-width: 0; }
-.panel.now { border-left: 4px solid var(--accent); }
-.panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 8px; }
+@media (max-width: 800px) { main { padding: 12px 16px; } }
 #desc { font-size: 15px; overflow-wrap: anywhere; }
-#desc a.dbg { font-size: 12.5px; margin-left: 6px; white-space: nowrap; }
-#desc .kind { display: inline-block; padding: 1px 8px; border-radius: 4px; background: var(--accent); color: #fff; font-size: 12px; margin-right: 6px; }
-#stack { color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
-#stack a { color: var(--accent); cursor: pointer; }
+#desc a.dbg { font-size: 13px; margin-left: 6px; white-space: nowrap; display: inline-flex; align-items: center; gap: 2px; }
+#desc .kind { display: inline-block; padding: 2px 8px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600; margin-right: 6px; }
+#stack { color: var(--muted); margin-top: 6px; overflow-wrap: anywhere; }
+#stack a { cursor: pointer; }
 #stack a.sel { text-decoration: underline; font-weight: 600; }
-details summary { cursor: pointer; color: var(--muted); }
+#src-panel { margin-top: 12px; }
 #src-title { color: var(--muted); margin: 8px 0 4px; }
-#src { margin: 0; overflow-x: auto; background: var(--bg); border-radius: 6px; padding: 6px 0; }
-#src div { padding: 0 10px; white-space: pre; }
+#src { margin: 0; overflow-x: auto; background: var(--sunk); border-radius: 12px; padding: 8px 0; }
+#src div { padding: 0 12px; white-space: pre; }
 #src div.on { background: var(--hl); }
 #src .ln { display: inline-block; width: 42px; color: var(--muted); text-align: right; margin-right: 12px; user-select: none; }
-.viol { margin-top: 8px; border: 1px solid var(--dying); border-radius: 6px; padding: 6px 10px; color: var(--dying); font-size: 13px; }
-.viol div::before { content: "⚠ "; }
-.viol .warn { color: var(--warn); }
-.viol .warn::before { content: "참고: "; }
+/* 위반 목록: 오류는 빨간 표면, 참고는 주황 표면. 아이콘은 왼쪽에 고정 (본문 안 <code> 줄바꿈이 안 깨지게) */
+.viol { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.viol > div { position: relative; background: var(--err-soft); color: var(--err); border-radius: 12px; padding: 10px 12px 10px 36px; font-size: 14px; }
+.viol > div::before { content: ""; position: absolute; left: 12px; top: 12px; width: 16px; height: 16px; background: currentColor;
+  -webkit-mask: var(--i-alert) center / contain no-repeat; mask: var(--i-alert) center / contain no-repeat; }
+.viol > .warn { background: var(--warn-soft); color: var(--warn); }
+.viol > .warn::before { -webkit-mask-image: var(--i-info); mask-image: var(--i-info); }
 /* 프로세스 트리 */
 .tree { margin: 0; padding: 0; list-style: none; }
-.tree ul { list-style: none; margin: 0 0 0 18px; padding: 0 0 0 12px; border-left: 1px dashed var(--line); }
-.node { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: baseline; border: 2px solid var(--c); border-radius: 8px;
-  padding: 3px 9px; margin: 3px 0; background: var(--panel); }
+.tree ul { list-style: none; margin: 0 0 0 24px; padding: 0; }
+.node { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: baseline; border-radius: 12px; padding: 6px 12px 6px 15px; margin: 3px 0;
+  background: var(--sunk); box-shadow: inset 3px 0 0 var(--c); }
 .node.me { background: var(--hl); }
-.node.gone { opacity: .55; border-style: dashed; }
+.node.gone { opacity: .5; }
 .node .nm { font-weight: 600; }
 .node .sub { font-size: 12px; color: var(--muted); }
 /* 스케줄러 패널: Project 1 뷰어(viewer.html)와 같은 레인/카드 */
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; min-height: 50px; }
-.lane, .sync { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 10px; align-items: center;
-  padding: 8px 6px; border-top: 1px dashed var(--line); border-radius: 6px; }
+.lane, .sync { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 12px; align-items: center;
+  padding: 10px 8px; border-top: 1px solid var(--line); }
 .lane:first-child, .sync:first-child { border-top: 0; }
 .lane-name { font-weight: 600; font-size: 13px; }
 .lane-name small, .sync .meta { display: block; color: var(--muted); font-weight: 400; font-size: 12px; }
-.sync.changed { background: var(--hl); }
-.sync .kd { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); margin-left: 4px; }
+.sync.changed { background: var(--hl); border-radius: 12px; }
+.sync .kd { display: inline-block; font-size: 12px; padding: 0 6px; border-radius: 8px; background: var(--sunk); color: var(--muted); margin-left: 4px; }
 .arrow { color: var(--muted); align-self: center; }
-.empty { color: var(--muted); font-style: italic; align-self: center; }
-.card { border: 2px solid var(--c); border-radius: 8px; padding: 4px 9px; min-width: 92px; background: var(--panel); transition: background .3s; }
+.empty { color: var(--muted); align-self: center; font-size: 14px; }
+.card { border-radius: 12px; padding: 6px 12px 6px 15px; min-width: 92px; background: var(--sunk); box-shadow: inset 3px 0 0 var(--c, var(--blocked)); transition: background .3s; }
 .card.changed { background: var(--hl); }
 .card .nm { font-weight: 600; }
 .card .pr { font-size: 12px; color: var(--muted); }
-.card .pr b { color: var(--text); }
+.card .pr b { color: var(--fg); }
 .card .don { color: var(--dying); font-weight: 600; }
-.card .wt { font-size: 11.5px; color: var(--muted); }
-#sync { margin-top: 10px; }
+.card .wt { font-size: 12px; color: var(--muted); }
+#sync { margin-top: 12px; }
 .node .pri { font-size: 12px; color: var(--muted); }
 .lockarrow { font-size: 12px; color: var(--muted); align-self: center; text-align: center; }
-.lockarrow b { display: block; color: var(--text); }
+.lockarrow b { display: block; color: var(--fg); }
 .st { font-weight: 600; font-size: 12px; }
 .st-RUNNING { color: var(--run); } .st-READY { color: var(--ready); } .st-BLOCKED { color: var(--blocked); } .st-DYING, .st-EXIT { color: var(--dying); }
-/* 타임라인 */
-.cvwrap { overflow-x: auto; }
-canvas { display: block; cursor: pointer; }
-.legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 6px; flex-wrap: wrap; }
-.legend i { display: inline-block; width: 12px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
-/* 탭 */
-.tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line); margin: -4px 0 10px; }
-.tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--muted); padding: 6px 10px; }
-.tabs button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
-.tabs button.alert::after { content: " ●"; color: var(--dying); }
+.panel > .note { margin-top: 8px; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
-th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { color: var(--muted); font-weight: 500; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-size: 12px; font-weight: 600; }
 .tblwrap { overflow-x: auto; }
 tr.hl td { background: var(--hl); }
 tr.pad td { color: var(--muted); }
 td.lbl { font-weight: 600; white-space: nowrap; }
 td.lbl.argv { color: var(--accent); } td.lbl.str { color: var(--file); } td.lbl.ret { color: var(--proc); } td.lbl.bad { color: var(--dying); }
-.checks { margin: 8px 0; padding: 0; list-style: none; font-size: 13px; }
-.checks li::before { content: "✓ "; color: var(--run); font-weight: 700; }
-.checks li.err { color: var(--dying); } .checks li.err::before { content: "✗ "; color: var(--dying); }
-.checks li.warn { color: var(--warn); } .checks li.warn::before { content: "! "; color: var(--warn); }
-.kv { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 8px; }
-.kv span { border: 1px solid var(--line); border-radius: 6px; padding: 1px 8px; background: var(--bg); }
-.note { font-size: 12px; color: var(--muted); margin-top: 6px; }
-a.jump { color: var(--accent); cursor: pointer; }
-.res { font-weight: 700; padding: 2px 9px; border-radius: 6px; font-size: 13px; color: #fff; }
-.res.pass { background: var(--run); } .res.fail { background: var(--dying); } .res.none { background: var(--blocked); }
-#summary { color: var(--muted); font-size: 13px; }
+.tp h2 { margin-top: 20px; }
+/* 검사 목록: 통과 check, 오류 x, 참고 info */
+.checks { margin: 8px 0; padding: 0; list-style: none; font-size: 14px; }
+.checks li { position: relative; padding: 2px 0 2px 24px; --ci: var(--i-check); }
+.checks li::before { content: ""; position: absolute; left: 0; top: 5px; width: 16px; height: 16px; background: var(--ok);
+  -webkit-mask: var(--ci) center / contain no-repeat; mask: var(--ci) center / contain no-repeat; }
+.checks li.err { color: var(--err); --ci: var(--i-x); } .checks li.err::before { background: var(--err); }
+.checks li.warn { color: var(--warn); --ci: var(--i-info); } .checks li.warn::before { background: var(--warn); }
+.kv { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; font-size: 13px; }
+.kv span { border-radius: 8px; padding: 4px 10px; background: var(--sunk); }
+a.jump { cursor: pointer; }
+.vmark { color: var(--err); } .vmark.i-info { color: var(--warn); }
 /* 이벤트 목록 */
-#events { position: sticky; top: calc(var(--hh, 90px) + 12px); max-height: calc(100vh - var(--hh, 90px) - 24px); overflow-y: auto; padding: 0; }
-#events div { padding: 3px 10px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 12.5px; display: flex; gap: 6px; }
-#events div:hover { background: var(--bg); }
-#events div.cur { background: var(--hl); }
-#events div.bad { color: var(--dying); }
-#events div.bad span:last-child::before { content: "⚠ "; }
+#events { position: sticky; top: calc(var(--hh, 90px) + 16px); max-height: calc(100vh - var(--hh, 90px) - 32px); overflow-y: auto; padding: 8px 0; }
+#events div { padding: 6px 16px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 13px; display: flex; gap: 8px; }
+#events div:last-child { border-bottom: 0; }
+#events div:hover { background: var(--weak); }
+#events div.cur { background: var(--accent-soft); }
+#events div.bad { color: var(--err); }
+#events div.bad span:last-child::before { content: ""; display: inline-block; width: 14px; height: 14px; margin-right: 4px; vertical-align: -2px; background: currentColor;
+  -webkit-mask: var(--i-alert) center / contain no-repeat; mask: var(--i-alert) center / contain no-repeat; }
 #events .t { color: var(--muted); min-width: 34px; text-align: right; flex: none; }
 #events .who { flex: none; font-weight: 600; }
 #events .tx { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-pre.box { max-height: 320px; overflow: auto; margin: 0; white-space: pre-wrap; background: var(--bg); border-radius: 6px; padding: 8px; }
-#prog { display: none; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
-#prog .bar { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; margin: 6px 0; }
-#prog .bar i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+pre.box { max-height: 320px; overflow: auto; margin: 0; white-space: pre-wrap; }
+#prog { display: none; padding: 12px 24px; background: var(--panel); box-shadow: 0 1px 0 var(--line); font-size: 14px; }
+#prog .track { margin: 8px 0; }
 #prog .done { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; }
-#prog .done span { border: 1px solid var(--line); border-radius: 5px; padding: 0 6px; }
+#prog .done span { border-radius: 8px; padding: 2px 8px; background: var(--sunk); display: inline-flex; align-items: center; gap: 4px; }
+#prog .done .i-check { color: var(--ok); } #prog .done .i-x { color: var(--err); } #prog .done .i-help { color: var(--muted); }
+@media (max-width: 800px) { #prog { padding: 12px 16px; } }
 </style>
 </head>
 <body>
-<header>
+<header class="top">
   <div class="hrow">
-    <h1>Pintos 유저 프로그램 흐름</h1>
+    <h1 id="h1">Pintos 유저 프로그램 흐름</h1>
     <select id="test"></select>
+    <button id="rerun" class="soft" title="이 테스트를 다시 추적해요"><i class="ic i-refresh"></i>다시 실행</button>
     <span id="res" class="res none"></span>
     <span id="summary"></span>
     <span class="grow"></span>
     <label class="chk"><input type="checkbox" id="f-boot" checked>부팅 출력 숨김</label>
     <label class="chk"><input type="checkbox" id="f-out">콘솔 출력 숨김</label>
+    <label class="chk" id="f-vmf-wrap" hidden><input type="checkbox" id="f-vmf">처리된 page fault 숨김</label>
     <label class="chk"><input type="checkbox" id="f-sched" checked>우선순위·대기열 보기</label>
-    <a href="viewer.html">Project 1 뷰어</a>
+    <a href="viewer.html">Project 1 뷰어</a> <a id="other-view" href="uprog.html?vm">Project 3 뷰어</a>
   </div>
   <div class="hrow">
-    <button id="prev" title="이전 (←)">◀</button>
-    <button id="play" class="primary" title="재생/정지 (space)">▶ 재생</button>
-    <button id="next" title="다음 (→)">▶</button>
+    <button id="prev" class="icon" title="이전 (←)" aria-label="이전"><i class="ic i-left"></i></button>
+    <button id="play" class="primary" title="재생/정지 (space)"><i class="ic i-play"></i>재생</button>
+    <button id="next" class="icon" title="다음 (→)" aria-label="다음"><i class="ic i-right"></i></button>
     <select id="speed"><option value="900">느리게</option><option value="450" selected>보통</option><option value="150">빠르게</option></select>
     <input type="range" id="slider" min="0" value="0">
     <span id="pos" class="mono"></span>
-    <button id="nextbad" title="다음 이상 이벤트로 (n)">⚠ 다음 이상</button>
+    <button id="nextbad" title="다음 이상 이벤트로 (n)"><i class="ic i-alert"></i>다음 이상</button>
   </div>
 </header>
 <div id="prog"></div>
+<div class="toast" id="toast" role="status"></div>
 <main>
   <div>
     <div class="panel now"><h2>이번 이벤트</h2><div id="desc"></div><div id="stack" class="mono"></div><div id="viol"></div>
-      <details id="src-panel"><summary>소스 (call stack 항목 클릭하면 바뀜)</summary>
+      <details id="src-panel"><summary>소스 (call stack 항목을 누르면 바뀌어요)</summary>
         <div id="src-title" class="mono"></div><div id="src" class="mono"></div></details></div>
     <div class="panel"><h2>프로세스 트리 — 이벤트 직후 (부모 → 자식)</h2><ul class="tree" id="tree"></ul></div>
     <div class="panel" id="sched-panel"><h2>스케줄러 — 이벤트 직후 (ready_list / sleep_list / lock·semaphore 대기, 앞 → 뒤)</h2>
       <div id="lanes"></div><div id="sync"></div>
       <h2 style="margin-top:12px">donation — 대기 체인 (lock을 기다림 → 주인) / donations 리스트</h2><div id="don"></div></div>
-    <div class="panel"><h2>타임라인 (가로축 = 이벤트 순서, 클릭하면 이동)</h2>
-      <div class="cvwrap"><canvas id="tl"></canvas></div>
-      <div class="legend"><span><i style="background:var(--run)"></i>RUNNING</span><span><i style="background:var(--ready)"></i>READY</span>
-        <span><i style="background:var(--blocked)"></i>BLOCKED</span><span><i style="background:var(--proc)"></i>fork / exec / wait / exit</span>
-        <span><i style="background:var(--file)"></i>파일 시스템 콜</span><span><i style="background:var(--dying)"></i>page fault / 이상</span></div>
-      <div class="note">아래: 테스트 시작 후 할당돼 아직 안 풀린 페이지 수(palloc)와 열린 파일 수. 끝에서 0으로 안 돌아오면 누수임</div>
-      <div class="cvwrap"><canvas id="mem"></canvas></div>
+    <div class="panel"><div class="tl-head"><h2>타임라인 (가로축 = 이벤트 순서, 클릭하면 이동)</h2><span class="grow"></span><span class="tl-ctl" id="tl-ctl"></span></div>
+      <div id="tl"></div>
+      <div class="legend"><span><i class="lg-bar" style="--c:var(--run)"></i>RUNNING</span><span><i class="lg-bar" style="--c:var(--ready)"></i>READY</span>
+        <span><i class="lg-bar" style="--c:var(--blocked)"></i>BLOCKED</span><span><i class="lg-link" style="--c:var(--proc)"></i>자식 생성</span>
+        <span><i class="lg-tick" style="--c:var(--proc)"></i>fork / exec / wait / exit 콜</span><span><i class="lg-tick" style="--c:var(--file)"></i>파일 시스템 콜</span>
+        <span><i class="lg-tick" style="--c:var(--blocked)"></i>콘솔 입출력</span><span><i class="lg-tick" style="--c:var(--sleep)"></i>처리된 page fault</span>
+        <span><i class="lg-tick" style="--c:var(--dying)"></i>page fault</span><span><i class="lg-bad" style="--c:var(--dying)"></i>이상</span></div>
+      <div class="note">맨 아래 그래프는 테스트 시작 후 할당하고 아직 풀지 않은 페이지 수(palloc)와 열린 파일 수예요. 끝에서 0으로 돌아오지 않으면 누수예요</div>
       <div class="note mono" id="mem-now"></div>
     </div>
     <div class="panel">
       <div class="tabs" role="tablist">
-        <button data-t="stack" id="tab-stack" role="tab">유저 스택 (인자 전달)</button><button data-t="fd" role="tab">fd 테이블</button><button data-t="fault" id="tab-fault" role="tab">page fault / 예외</button><button data-t="leak" id="tab-leak" role="tab">누수 검사</button><button data-t="ck" id="tab-ck" role="tab">채점 결과 (.ck)</button><button data-t="out" role="tab">테스트 출력</button>
+        <button data-t="stack" id="tab-stack" role="tab">유저 스택 (인자 전달)</button><button data-t="fd" role="tab">fd 테이블</button><button data-t="vm" id="tab-vm" role="tab" hidden>가상 메모리 (SPT / 프레임)</button><button data-t="fault" id="tab-fault" role="tab">page fault / 예외</button><button data-t="leak" id="tab-leak" role="tab">누수 검사</button><button data-t="ck" id="tab-ck" role="tab">채점 결과 (.ck)</button><button data-t="out" role="tab">테스트 출력</button>
       </div>
       <div class="tp" id="tp-stack"></div>
       <div class="tp" id="tp-fd" hidden></div>
+      <div class="tp" id="tp-vm" hidden></div>
       <div class="tp" id="tp-fault" hidden></div>
       <div class="tp" id="tp-leak" hidden></div>
       <div class="tp" id="tp-ck" hidden><pre class="box mono" id="ck"></pre></div>
@@ -198,11 +170,29 @@ pre.box { max-height: 320px; overflow: auto; margin: 0; white-space: pre-wrap; b
   </div>
   <aside class="panel" id="events"></aside>
 </main>
-<script src="udata.js"></script>
 <script>
+// uprog.html?vm = Project 3 (VM 빌드로 돈 테스트, vdata.js). 화면은 Project 2와 같고 가상 메모리 탭이 붙음
+const VM_MODE = /[?&]vm\b/.test(location.search);
+document.write(`<script src="${VM_MODE ? "vdata" : "udata"}.js"><\/script>`);
+</script>
+<script src="tl.js"></script>
+<script>
+// 이름 앞부분(args-, wait- ...)으로 묶음. 하나뿐인 것은 "그 외"로 모음 (index.html과 같은 기준)
+function bucket(ts) {
+  const m = new Map(), etc = [], out = [];
+  for (const t of ts) { const p = t.split("-")[0]; m.has(p) ? m.get(p).push(t) : m.set(p, [t]); }
+  for (const [p, v] of m) v.length > 1 ? out.push([p, v]) : etc.push(...v);
+  if (etc.length) out.push(["그 외", etc]);
+  return out;
+}
+const optgroups = (names, opt) => bucket(names).map(([p, ns]) => `<optgroup label="${p}">${ns.map(opt).join("")}</optgroup>`).join("");
 const $ = id => document.getElementById(id);
+if (VM_MODE) {
+  $("h1").textContent = "Pintos 가상 메모리 흐름 (Project 3)"; document.title = "Pintos VM Viewer";
+  $("other-view").href = "uprog.html"; $("other-view").textContent = "Project 2 뷰어";
+}
 const TR = window.TRACES || {};
-let T, view = [], idx = 0, timer = null, srcSel = null, tlCache = null;
+let T, view = [], idx = 0, timer = null, srcSel = null;
 const USER_STACK = 0x47480000, KERN_BASE = 0x8004000000;
 const esc = t => String(t ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const hex = v => v == null ? "?" : "0x" + v.toString(16);
@@ -210,6 +200,8 @@ const color = i => `hsl(${(i * 67 + 200) % 360} 62% 50%)`;
 // x86 예외 번호 -> 이름 (kill()로 죽은 경우. 14 = page fault는 따로 기록)
 const VEC = { 0: "#DE 0으로 나누기", 3: "#BP", 4: "#OF", 5: "#BR", 6: "#UD 잘못된 명령어", 7: "#NM", 11: "#NP", 12: "#SS 스택 세그먼트", 13: "#GP 일반 보호 (비정규 주소 등)", 16: "#MF", 17: "#AC", 19: "#XF" };
 const vecName = v => VEC[v] || "예외 " + v;
+// 이상 표시: 오류면 alert, 참고만 있으면 info
+const vmark = e => e.viol.length ? ` <i class="ic vmark i-${e.viol.some(v => v.lvl === "err") ? "alert" : "info"}"></i>` : "";
 const PROC = new Set(["fork", "exec", "wait", "exit", "halt"]);
 
 function tname(i) { return i == null ? "?" : esc(T.threads[i] ? T.threads[i].name : "#" + i); }
@@ -238,29 +230,29 @@ function argCheck(ev, cmd) {
   const out = [], sv = stackView(ev), r = ev.regs;
   const want = (cmd || "").split(" ").filter(Boolean);
   const add = (lvl, msg) => out.push({ lvl, msg });
-  if (!sv) { add("err", `rsp(${hex(r.rsp)})가 유저 스택(${hex(USER_STACK)} 바로 아래) 범위 밖임. setup_stack 이후 rsp를 옮기는 계산을 확인`); return { out, labels: {} }; }
+  if (!sv) { add("err", `rsp(${hex(r.rsp)})가 유저 스택(${hex(USER_STACK)} 바로 아래) 범위 밖이에요. setup_stack 이후 rsp를 옮기는 계산을 확인해 주세요`); return { out, labels: {} }; }
   const labels = {};   // 주소 -> [종류, 설명]
-  if (r.rsp % 8) add("err", `rsp(${hex(r.rsp)})가 8바이트 정렬이 아님. 문자열을 넣은 뒤 8의 배수로 내려야 함`);
+  if (r.rsp % 8) add("err", `rsp(${hex(r.rsp)})가 8바이트로 정렬돼 있지 않아요. 문자열을 넣은 뒤 8의 배수로 내려야 해요`);
   if (r.rdi !== want.length) add("err", `rdi(argc) = ${r.rdi}, 기대값 ${want.length} (명령줄 "${esc(cmd)}")`);
   else add("ok", `rdi(argc) = ${r.rdi}`);
   const argc = Math.min(r.rdi, 64);
-  if (r.rsi % 8) add("err", `rsi(argv) = ${hex(r.rsi)}가 8바이트 정렬이 아님`);
-  if (r.rsi < sv.base || r.rsi >= sv.top) add("err", `rsi(argv) = ${hex(r.rsi)}가 유저 스택(rsp ~ ${hex(USER_STACK)}) 안을 가리키지 않음`);
+  if (r.rsi % 8) add("err", `rsi(argv) = ${hex(r.rsi)}가 8바이트로 정렬돼 있지 않아요`);
+  if (r.rsi < sv.base || r.rsi >= sv.top) add("err", `rsi(argv) = ${hex(r.rsi)}가 유저 스택(rsp ~ ${hex(USER_STACK)}) 안을 가리키지 않아요`);
   else {
-    if (r.rsi !== r.rsp + 8) add("warn", `rsi(argv)가 rsp+8이 아님 (KAIST 문서의 배치는 rsp에 가짜 반환 주소, 바로 위가 argv[0])`);
+    if (r.rsi !== r.rsp + 8) add("warn", `rsi(argv)가 rsp+8이 아니에요 (KAIST 문서의 배치는 rsp에 가짜 반환 주소, 바로 위가 argv[0])`);
     else add("ok", "rsi(argv) = rsp + 8");
     let okAll = true;
     for (let k = 0; k <= argc; k++) {
       const a = r.rsi + 8 * k, p = sv.q(a);
       if (k === argc) {
-        labels[a] = ["argv", `argv[${k}] (NULL 이어야 함)`];
-        if (p !== 0) { add("err", `argv[${k}](argv[argc])가 NULL이 아님: ${hex(p)}`); okAll = false; }
+        labels[a] = ["argv", `argv[${k}] (NULL이어야 해요)`];
+        if (p !== 0) { add("err", `argv[${k}](argv[argc])가 NULL이 아니에요: ${hex(p)}`); okAll = false; }
         break;
       }
       labels[a] = ["argv", `argv[${k}]`];
-      if (p == null) { add("err", `argv[${k}]를 읽을 수 없음 (스택 범위 밖)`); okAll = false; continue; }
+      if (p == null) { add("err", `argv[${k}]를 읽을 수 없어요 (스택 범위 밖)`); okAll = false; continue; }
       const s = p >= sv.base && p < sv.top ? sv.str(p) : null;
-      if (s == null) { add("err", `argv[${k}] = ${hex(p)}가 스택 안 문자열을 가리키지 않음`); okAll = false; continue; }
+      if (s == null) { add("err", `argv[${k}] = ${hex(p)}가 스택 안 문자열을 가리키지 않아요`); okAll = false; continue; }
       labels[p] = ["str", `"${s}" (argv[${k}])`];
       if (k < want.length && s !== want[k]) { add("err", `argv[${k}] = "${esc(s)}", 기대값 "${esc(want[k])}"`); okAll = false; }
     }
@@ -268,7 +260,7 @@ function argCheck(ev, cmd) {
   }
   const ret = sv.q(r.rsp);
   labels[r.rsp] = labels[r.rsp] || ["ret", "가짜 반환 주소"];
-  if (ret !== 0 && labels[r.rsp][0] === "ret") add("warn", `rsp가 가리키는 가짜 반환 주소가 0이 아님 (${hex(ret)})`);
+  if (ret !== 0 && labels[r.rsp][0] === "ret") add("warn", `rsp가 가리키는 가짜 반환 주소가 0이 아니에요 (${hex(ret)})`);
   return { out, labels };
 }
 
@@ -293,6 +285,7 @@ function prepare(T) {
   });
   T.exitCode = exitCode; T.exited = exited; T.uentered = uentered;
   const E = T.events, add = (ev, lvl, msg) => ev.viol.push({ lvl, msg });
+  if (T.vm) vmCheck(T, add);
   const tidOf = i => T.threads[i] && T.threads[i].tid;
   const statusOf = j => j in exitCode ? exitCode[j] : -1;   // exit 시스템 콜 없이 죽었으면(fault 등) -1
   // 유저가 받은 fd로 다시 만든 프로세스별 fd 표 (stateAt과 같은 규칙). 커널 안의 실제 표는 안 읽음
@@ -308,32 +301,32 @@ function prepare(T) {
         // 커널이 유저 스택 위에서 돎: 원본 syscall-entry.S는 popq %rsp와 sysretq 사이에 인터럽트가 켜져 있어서
         // 그 틈에 타이머가 걸리면 이렇게 됨. 드물고 트레이서가 타이밍을 바꿔 더 자주 날 수 있음
         if (ev.rsp != null && ev.rsp < 0x8004000000)
-          add(ev, "warn", `커널이 유저 스택(rsp ${ev.rsp.toString(16)}) 위에서 돌다 죽음. 원본 <code>userprog/syscall-entry.S</code>의 <code>popq %rsp</code>와 <code>sysretq</code> 사이에 타이머 인터럽트가 걸리는 경쟁 조건일 가능성이 있음 (트레이스 중에 더 자주 남). 다시 실행해도 같은 곳에서 나면 커널이 유저 스택으로 돌아가는 경로(intr_frame의 rsp, tss)를 확인할 것`);
+          add(ev, "warn", `커널이 유저 스택(rsp ${ev.rsp.toString(16)}) 위에서 돌다 멈췄어요. 원본 <code>userprog/syscall-entry.S</code>의 <code>popq %rsp</code>와 <code>sysretq</code> 사이에 타이머 인터럽트가 걸리는 경쟁 조건일 수 있어요 (트레이스 중에 더 자주 나요). 다시 실행해도 같은 곳에서 나면 커널이 유저 스택으로 돌아가는 경로(intr_frame의 rsp, tss)를 확인해 주세요`);
         else if (hint) add(ev, "warn", hint[1]);
         break;
       }
       case "timeout": case "aborted": {
-        add(ev, "err", ev.kind === "timeout" ? `${ev.secs}초 안에 안 끝남. 아래 "멈춘 스레드"에서 각 스레드가 어디서 기다리는지 확인` : "power_off 전에 중단됨");
+        add(ev, "err", ev.kind === "timeout" ? `${ev.secs}초 안에 끝나지 않았어요. 아래 "멈춘 스레드"에서 각 스레드가 어디서 기다리는지 확인해 주세요` : "power_off 전에 중단됐어요");
         const S = ev.stuck || [], waits = {};
         for (const t of S) if (t.lock) waits[t.id] = t.lock.holder;
         for (const t of S) {
           if (!t.lock) continue;
           const h = t.lock.holder;
           if (h == null) continue;
-          if (exited[h] != null) { add(ev, "err", `${tname(t.id)}가 lock ${t.lock.addr}을 기다리는데, 주인 ${tname(h)}는 이미 끝남. lock을 놓지 않고 종료함 (exit/오류 경로에서 lock_release 빠짐)`); continue; }
+          if (exited[h] != null) { add(ev, "err", `${tname(t.id)}가 lock ${t.lock.addr}을 기다리는데, 주인 ${tname(h)}는 이미 끝났어요. lock을 놓지 않고 종료했어요 (exit/오류 경로에서 lock_release가 빠졌어요)`); continue; }
           // 기다림을 따라가서 자기에게 돌아오면 데드락
           const path = [t.id];
           for (let x = h; x != null && path.length < 20; x = waits[x]) {
-            if (x === t.id) { if (Math.min(...path) === t.id) add(ev, "err", `데드락: ${path.map(j => tname(j)).join(" → ")} → ${tname(t.id)} (각자 상대가 쥔 lock을 기다림)`); break; }
+            if (x === t.id) { if (Math.min(...path) === t.id) add(ev, "err", `데드락: ${path.map(j => tname(j)).join(" → ")} → ${tname(t.id)} (각자 상대가 쥔 lock을 기다려요)`); break; }
             if (path.includes(x)) break;
             path.push(x);
           }
-          if (h === t.id) add(ev, "err", `${tname(t.id)}가 자기가 쥔 lock ${t.lock.addr}을 다시 acquire하려고 멈춤`);
+          if (h === t.id) add(ev, "err", `${tname(t.id)}가 자기가 쥔 lock ${t.lock.addr}을 다시 acquire하려고 멈췄어요`);
         }
         break;
       }
-      case "smash": add(ev, "err", `커널 스택 넘침: ${esc(ev.sys)} 처리 중 스레드 페이지 아래쪽 struct thread가 덮임 (magic 깨짐). 커널 함수의 큰 지역 배열(예: char buf[4096])은 palloc/malloc으로 바꿀 것`); break;
-      case "dclose": add(ev, "err", `같은 파일(struct file ${ev.fp})을 두 번 file_close함. 이미 해제된 메모리라 나중에 엉뚱한 곳이 망가질 수 있음. close 뒤 fd 표에서 지웠는지, exit 때 다시 닫지 않는지 확인`); break;
+      case "smash": add(ev, "err", `커널 스택이 넘쳤어요: ${esc(ev.sys)} 처리 중 스레드 페이지 아래쪽 struct thread를 덮었어요 (magic 깨짐). 커널 함수의 큰 지역 배열(예: char buf[4096])은 palloc/malloc으로 바꿔 주세요`); break;
+      case "dclose": add(ev, "err", `같은 파일(struct file ${ev.fp})을 두 번 file_close했어요. 이미 해제한 메모리라 나중에 엉뚱한 곳이 망가질 수 있어요. close 뒤 fd 표에서 지웠는지, exit 때 다시 닫지 않는지 확인해 주세요`); break;
       case "uentry":
         if (ev.via === "process_exec") ev.args_check = argCheck(ev, ev.cmd);
         if (ev.args_check) for (const c of ev.args_check.out) if (c.lvl !== "ok") add(ev, c.lvl, "인자 전달: " + c.msg);
@@ -345,31 +338,31 @@ function prepare(T) {
             const p = pairs.find(x => x[0] === v.fp);
             if (p) tb[k] = { fp: p[1] }; else miss.push(k);   // 자식 표는 이제 복제본을 가리킴 (손자 fork 검사용)
           }
-          if (miss.length) add(ev, "warn", `부모의 fd ${miss.join(", ")}를 fork 자식에서 file_duplicate하지 않음. 같은 struct file을 공유하면 한쪽의 close/seek이 다른 쪽에 영향을 줌`);
-          if (ev.regs.rax !== 0) add(ev, "err", `fork 자식의 rax = ${ev.regs.rax}. 자식 쪽 fork() 반환값은 0이어야 함`);
+          if (miss.length) add(ev, "warn", `부모의 fd ${miss.join(", ")}를 fork 자식에서 file_duplicate하지 않았어요. 같은 struct file을 공유하면 한쪽의 close/seek이 다른 쪽에 영향을 줘요`);
+          if (ev.regs.rax !== 0) add(ev, "err", `fork 자식의 rax = ${ev.regs.rax}. 자식 쪽 fork() 반환값은 0이어야 해요`);
           const par = T.threads[by] && T.threads[by].parent;
           const call = E.slice(0, i).reverse().find(e => e.kind === "sys" && e.by === par && e.name === "fork");
           if (call) {
-            if (call.rip !== ev.regs.rip) add(ev, "err", `fork 자식이 ${hex(ev.regs.rip)}에서 시작함. 부모가 fork를 부른 위치(${hex(call.rip)})여야 함 (부모의 유저 intr_frame을 복사했는지 확인)`);
-            if (call.rsp !== ev.regs.rsp) add(ev, "err", `fork 자식의 rsp(${hex(ev.regs.rsp)})가 부모의 유저 rsp(${hex(call.rsp)})와 다름`);
+            if (call.rip !== ev.regs.rip) add(ev, "err", `fork 자식이 ${hex(ev.regs.rip)}에서 시작했어요. 부모가 fork를 부른 위치(${hex(call.rip)})여야 해요 (부모의 유저 intr_frame을 복사했는지 확인해 주세요)`);
+            if (call.rsp !== ev.regs.rsp) add(ev, "err", `fork 자식의 rsp(${hex(ev.regs.rsp)})가 부모의 유저 rsp(${hex(call.rsp)})와 달라요`);
           }
         }
         break;
       case "sysret": {
         const call = E[ev.call];
-        if (call.bad && call.bad.length) add(ev, "err", `${call.name}에 잘못된 포인터를 넘겼는데 프로세스를 끝내지 않고 반환함. exit(-1)로 종료해야 함`);
+        if (call.bad && call.bad.length) add(ev, "err", `${call.name}에 잘못된 포인터를 넘겼는데 프로세스를 끝내지 않고 반환했어요. exit(-1)로 종료해야 해요`);
         if (call.name === "fork" && ev.ret !== -1) {
           const kid = T.threads.findIndex((t, j) => t.parent === by && E.some((e, k) => k > ev.call && k < i && e.kind === "create" && e.target === j));
-          if (kid >= 0 && tidOf(kid) !== ev.ret) add(ev, "err", `fork가 ${ev.ret}를 반환함. 만든 자식의 tid는 ${tidOf(kid)}`);
+          if (kid >= 0 && tidOf(kid) !== ev.ret) add(ev, "err", `fork가 ${ev.ret}를 반환했어요. 반환값은 만든 자식의 tid(${tidOf(kid)})여야 해요`);
         }
         if (call.name === "wait") {
           const t = call.args[0], j = T.threads.findIndex(x => x.tid === t && x.parent === by), key = by + ":" + t;
           let want = -1, why = "자식이 아니거나 없는 pid";
           if (j >= 0 && waited.has(key)) why = "이미 wait한 자식";
           else if (j >= 0) { want = statusOf(j); why = `자식 ${tname(j)}의 종료 코드`; waited.add(key); }
-          if (ev.ret !== want) add(ev, "err", `wait(${t})가 ${ev.ret}를 반환함. 기대값 ${want} (${why})`);
+          if (ev.ret !== want) add(ev, "err", `wait(${t})가 ${ev.ret}를 반환했어요. 기대값 ${want} (${why})`);
         }
-        if (call.name === "open" && (ev.ret === 0 || ev.ret === 1)) add(ev, "err", `open이 fd ${ev.ret}를 반환함. 0, 1은 표준 입출력 자리임`);
+        if (call.name === "open" && (ev.ret === 0 || ev.ret === 1)) add(ev, "err", `open이 fd ${ev.ret}를 반환했어요. 0, 1은 표준 입출력 자리예요`);
         // 아래는 반환값으로 판단하는 검사. 잘못된 포인터로 이미 오류를 낸 호출은 건너뜀
         if (!(call.bad && call.bad.length)) fdCheck(ev, call, fdt[by] || (fdt[by] = {}), add,
           filesTracked && E.slice(ev.call + 1, i).every(e => e.by === by), usedDup2);
@@ -380,18 +373,19 @@ function prepare(T) {
         break;
       }
       case "fault":
+        if (ev.vmok) break;   // Project 3: vm_try_handle_fault가 처리함 (lazy 로딩 등). 검사는 vmCheck에서
         if (ev.vec != null) { if (!ev.user) add(ev, "err", `커널 코드에서 ${vecName(ev.vec)}`); }
         else if (!ev.user && ev.addr != null && ev.addr < KERN_BASE)
-          add(ev, "warn", `커널 코드(${esc(ev.ksym || hex(ev.rip))})가 유저 주소 ${hex(ev.addr)}에 접근하다 fault. 시스템 콜 포인터를 미리 검사하지 않았다면 여기서 커널이 죽을 수 있음`);
-        else if (!ev.user) add(ev, "err", `커널 코드(${esc(ev.ksym || hex(ev.rip))})에서 커널 주소 ${hex(ev.addr)} page fault`);
-        if (ev.user && by != null && exited[by] == null) add(ev, "err", "유저 프로그램이 잘못된 주소를 건드렸는데 프로세스가 끝나지 않음. exit(-1)로 종료해야 함");
+          add(ev, "warn", `커널 코드(${esc(ev.ksym || hex(ev.rip))})가 유저 주소 ${hex(ev.addr)}에 접근하다 fault가 났어요. 시스템 콜 포인터를 미리 검사하지 않았다면 여기서 커널이 죽을 수 있어요`);
+        else if (!ev.user) add(ev, "err", `커널 코드(${esc(ev.ksym || hex(ev.rip))})에서 커널 주소 ${hex(ev.addr)}에 page fault가 났어요`);
+        if (ev.user && by != null && exited[by] == null) add(ev, "err", "유저 프로그램이 잘못된 주소를 건드렸는데 프로세스가 끝나지 않았어요. exit(-1)로 종료해야 해요");
         break;
       case "exit":
         if (T.uentered[ev.target]) {
           const p = printed[ev.target], want = statusOf(ev.target), nm = T.threads[ev.target].name;
-          if (!p || p.i < i) add(ev, "err", `종료 메시지 "${esc(nm)}: exit(${want})"가 출력되지 않음`);
-          else if (p.code !== want) add(ev, "err", `종료 메시지가 exit(${p.code}). 기대값 exit(${want})${want === -1 && !(ev.target in exitCode) ? " (커널이 죽인 프로세스)" : ""}`);
-          else if (p.name !== nm) add(ev, "warn", `종료 메시지 이름이 "${esc(p.name)}". 스레드 이름은 "${esc(nm)}"`);
+          if (!p || p.i < i) add(ev, "err", `종료 메시지 "${esc(nm)}: exit(${want})"를 출력하지 않았어요`);
+          else if (p.code !== want) add(ev, "err", `종료 메시지에 exit(${p.code})가 찍혔어요. 기대값 exit(${want})${want === -1 && !(ev.target in exitCode) ? " (커널이 죽인 프로세스)" : ""}`);
+          else if (p.name !== nm) add(ev, "warn", `종료 메시지의 이름("${esc(p.name)}")이 스레드 이름("${esc(nm)}")과 달라요`);
         }
         break;
       case "end": {
@@ -400,16 +394,16 @@ function prepare(T) {
         // exec까지 갔는데 안 끝난 프로세스가 있으면 그게 먼저임. 그 프로세스가 쥔 페이지/파일은 당연히 누수로 잡히므로 누수 검사는 생략
         const alive = [...new Set([...Object.keys(lastExec), ...Object.keys(T.uentered)])].filter(j => exited[j] == null);
         if (alive.length && !E.some(e => e.kind === "panic")) {   // panic이면 그게 원인이므로 따로 안 셈
-          add(ev, "err", `프로세스 ${alive.map(j => tname(+j)).join(", ")}가 끝나기 전에 커널이 꺼짐. process_wait가 자식이 끝날 때까지 기다리지 않고 반환했을 수 있음 (과제 시작 전 상태면 정상)`);
+          add(ev, "err", `프로세스 ${alive.map(j => tname(+j)).join(", ")}가 끝나기 전에 커널이 꺼졌어요. process_wait가 자식이 끝날 때까지 기다리지 않고 반환했을 수 있어요 (과제 시작 전 상태면 정상이에요)`);
           break;
         }
         if (alive.length) break;
         const L = T.leaks;
         if (L) {
           const pg = L.pages.filter(p => !p.pending), np = pg.reduce((a, p) => a + p.n, 0);
-          if (np) add(ev, "err", `페이지 ${np}개가 해제되지 않음 (누수 검사 탭)`);
-          if (L.files.length) add(ev, "err", `파일 ${L.files.length}개가 닫히지 않음 (누수 검사 탭)`);
-          if (L.blocks?.length) add(ev, "err", `malloc 블록 ${L.blocks.length}개가 free되지 않음 (누수 검사 탭)`);
+          if (np) add(ev, "err", `페이지 ${np}개를 해제하지 않았어요 (누수 검사 탭)`);
+          if (L.files.length) add(ev, "err", `파일 ${L.files.length}개를 닫지 않았어요 (누수 검사 탭)`);
+          if (L.blocks?.length) add(ev, "err", `malloc 블록 ${L.blocks.length}개를 free하지 않았어요 (누수 검사 탭)`);
         }
         break;
       }
@@ -420,14 +414,14 @@ function prepare(T) {
 
 // 커널 panic 메시지(ASSERT 식) -> 흔한 원인
 const PANIC_HINTS = [
-  ["is_thread (t)", "struct thread가 깨짐. 커널 스택 넘침(큰 지역 배열, 깊은 재귀)이거나 이미 끝난 스레드의 struct thread를 건드림"],
-  ["bitmap_all", "palloc_free: 이미 해제한 페이지를 또 해제했거나 palloc으로 받지 않은 주소를 해제함"],
-  ["!intr_context ()", "인터럽트 처리 중(타이머/page fault 핸들러 안 등)에 잠들 수 있는 함수(lock_acquire, sema_down 등)를 부름"],
-  ["!lock_held_by_current_thread", "이미 쥔 lock을 또 acquire함 (같은 lock을 두 번 잡는 경로)"],
-  ["lock_held_by_current_thread", "자기가 안 쥔 lock을 release함 (release 두 번, 또는 다른 스레드가 잡은 lock)"],
-  ["intr_get_level () == INTR_OFF", "인터럽트를 끄고 불러야 하는 함수를 켠 채로 부름"],
-  ["deny_write_cnt > 0", "file_allow_write가 deny보다 많이 불림. 같은 파일(실행 파일 포함)을 두 번 닫았는지 확인"],
-  ["is_interior (elem)", "리스트에 없는 elem을 list_remove함 (두 번 제거, 또는 list_init/push 안 한 elem)"],
+  ["is_thread (t)", "struct thread가 깨졌어요. 커널 스택이 넘쳤거나(큰 지역 배열, 깊은 재귀) 이미 끝난 스레드의 struct thread를 건드렸어요"],
+  ["bitmap_all", "palloc_free: 이미 해제한 페이지를 또 해제했거나 palloc으로 받지 않은 주소를 해제했어요"],
+  ["!intr_context ()", "인터럽트 처리 중(타이머/page fault 핸들러 안 등)에 잠들 수 있는 함수(lock_acquire, sema_down 등)를 불렀어요"],
+  ["!lock_held_by_current_thread", "이미 쥔 lock을 또 acquire했어요 (같은 lock을 두 번 잡는 경로)"],
+  ["lock_held_by_current_thread", "자기가 안 쥔 lock을 release했어요 (release 두 번, 또는 다른 스레드가 잡은 lock)"],
+  ["intr_get_level () == INTR_OFF", "인터럽트를 끄고 불러야 하는 함수를 켠 채로 불렀어요"],
+  ["deny_write_cnt > 0", "file_allow_write가 deny보다 많이 불렸어요. 같은 파일(실행 파일 포함)을 두 번 닫았는지 확인해 주세요"],
+  ["is_interior (elem)", "리스트에 없는 elem을 list_remove했어요 (두 번 제거, 또는 list_init/push 안 한 elem)"],
 ];
 
 // 시스템 콜 반환값 검사. f = 이 프로세스가 지금 가진 fd 표, solo = 호출~반환 사이에 다른 스레드 이벤트가 없음
@@ -437,26 +431,27 @@ function fdCheck(ev, call, f, add, solo, usedDup2) {
   const bad = fd < 0 || (fd >= 2 && !f[fd]);
   switch (call.name) {
     case "open":
-      if (r >= 2 && f[r]) add(ev, "err", `open이 이미 열려 있는 fd ${r}를 또 줌. fd 번호 할당 확인`);
-      if (r >= 0 && call.strs[0] === "") add(ev, "err", `빈 이름 open이 fd ${r}를 반환함. -1이어야 함`);
-      else if (r >= 0 && d === 0) add(ev, "err", `open이 fd ${r}를 줬는데 실제로 열린 파일이 없음 (file_open이 안 불림)`);
+      if (r >= 2 && f[r]) add(ev, "err", `open이 이미 열려 있는 fd ${r}를 또 줬어요. fd 번호 할당을 확인해 주세요`);
+      if (r >= 0 && call.strs[0] === "") add(ev, "err", `빈 이름 open이 fd ${r}를 반환했어요. -1이어야 해요`);
+      // call.fp = 이 호출 안에서 이 스레드가 file_open한 파일. 있으면 다른 프로세스가 동시에 닫아 개수가 그대로여도 정상
+      else if (r >= 0 && d === 0 && !call.fp) add(ev, "err", `open이 fd ${r}를 줬는데 실제로 열린 파일이 없어요 (file_open을 부르지 않았어요)`);
       break;
     case "close":
-      if (fd >= 2 && f[fd] && d === 0 && !usedDup2) add(ev, "warn", `close(${fd}) 뒤에도 파일이 열린 채로 남음. file_close를 불렀는지 확인`);
+      if (fd >= 2 && f[fd] && d === 0 && !usedDup2) add(ev, "warn", `close(${fd}) 뒤에도 파일이 열린 채로 남았어요. file_close를 불렀는지 확인해 주세요`);
       break;
     case "read": case "write": {
       const n = call.args[2];
-      if (r > n) add(ev, "err", `${call.name}가 요청한 크기(${n})보다 큰 ${r}를 반환함`);
-      if (bad && r !== -1) add(ev, "err", `열려 있지 않은 fd ${fd}에 ${call.name}했는데 ${r}를 반환함. -1이어야 함`);
-      if (fd >= 2 && f[fd] && r === -1) add(ev, "warn", `열린 fd ${fd}에 ${call.name}했는데 -1을 반환함`);
-      if (call.name === "write" && fd === 1 && r !== n) add(ev, "err", `콘솔 write(1, buf, ${n})가 ${r}를 반환함. 쓴 바이트 수(${n})여야 함`);
+      if (r > n) add(ev, "err", `${call.name}가 요청한 크기(${n})보다 큰 ${r}를 반환했어요`);
+      if (bad && r !== -1) add(ev, "err", `열려 있지 않은 fd ${fd}에 ${call.name}했는데 ${r}를 반환했어요. -1이어야 해요`);
+      if (fd >= 2 && f[fd] && r === -1) add(ev, "warn", `열린 fd ${fd}에 ${call.name}했는데 -1을 반환했어요`);
+      if (call.name === "write" && fd === 1 && r !== n) add(ev, "err", `콘솔 write(1, buf, ${n})가 ${r}를 반환했어요. 쓴 바이트 수(${n})여야 해요`);
       break;
     }
     case "filesize": case "tell":
-      if (bad && r >= 0 && call.name === "filesize") add(ev, "warn", `열려 있지 않은 fd ${fd}의 filesize가 ${r}를 반환함. -1이 자연스러움`);
+      if (bad && r >= 0 && call.name === "filesize") add(ev, "warn", `열려 있지 않은 fd ${fd}의 filesize가 ${r}를 반환했어요. -1이 자연스러워요`);
       break;
     case "exec":
-      if (r !== null && r !== -1) add(ev, "err", `exec이 ${r}를 반환함. 성공하면 돌아오지 않고, 실패하면 -1이어야 함`);
+      if (r !== null && r !== -1) add(ev, "err", `exec이 ${r}를 반환했어요. 성공하면 돌아오지 않고, 실패하면 -1이어야 해요`);
       break;
   }
 }
@@ -496,6 +491,7 @@ function stateAt(i) {
 // ---- 이벤트 설명 ----
 function fmtArg(ev, k) {
   const c = ev.sig[k], v = ev.args[k], bad = (ev.bad || []).includes(k);
+  if ((ev.lazy || []).includes(k)) return `${hex(v)} <span class="note">(아직 안 올린 페이지)</span>`;
   if (c === "s") return ev.strs[k] != null ? `"${esc(ev.strs[k])}"` : `<span class="st-DYING">${hex(v)} (잘못된 포인터)</span>`;
   if (c === "b" || c === "p") return bad ? `<span class="st-DYING">${hex(v)} (잘못된 포인터)</span>` : hex(v);
   return String(v);
@@ -507,7 +503,7 @@ function callText(ev, full) {
 }
 function retText(ev) {
   if (!("ret" in ev)) return "";
-  if (ev.ret === null) return " → 돌아오지 않음 (새 프로그램으로 전환)";
+  if (ev.ret === null) return " → 돌아오지 않아요 (새 프로그램으로 전환)";
   const b = ev.name === "create" || ev.name === "remove" ? ` (${ev.ret ? "true" : "false"})` : "";
   return ` → <b>${ev.ret}</b>${b}`;
 }
@@ -516,12 +512,12 @@ function describe(ev) {
   switch (ev.kind) {
     case "run_task": return `테스트 시작: <b>${esc(ev.cmd)}</b> (run_task → process_create_initd)`;
     case "create": return `<b>${by}</b>가 스레드 <b>${tname(ev.target)}</b> 생성 (thread_create)`;
-    case "exec": return `<b>${by}</b>가 process_exec("${esc(ev.cmd)}") — 지금 주소 공간을 지우고 새 프로그램을 올림`;
+    case "exec": return `<b>${by}</b>가 process_exec("${esc(ev.cmd)}") — 지금 주소 공간을 지우고 새 프로그램을 올려요`;
     case "uentry": {
       const sym = T.usyms[`${ev.prog}@${ev.regs.rip.toString(16)}`];
       const where = sym ? ` (${esc(sym.fn)})` : "";
       return ev.via === "__do_fork"
-        ? `<b>${by}</b> fork 자식이 유저 모드로 돌아감 (do_iret) · rip ${hex(ev.regs.rip)}${where} · rax(fork 반환값) = <b>${ev.regs.rax}</b>`
+        ? `<b>${by}</b> fork 자식이 유저 모드로 돌아가요 (do_iret) · rip ${hex(ev.regs.rip)}${where} · rax(fork 반환값) = <b>${ev.regs.rax}</b>`
         : `<b>${by}</b> 유저 프로그램 시작 (do_iret, 호출: ${esc(ev.via)}) · rip ${hex(ev.regs.rip)}${where} · rsp ${hex(ev.regs.rsp)} · argc ${ev.regs.rdi} — 스택은 아래 "유저 스택" 탭`;
     }
     case "sys": return `<b>${by}</b>: ${callText(ev, true)}${retText(ev)}${"ret" in ev ? "" : ev.name === "exit" ? "" : " (진행 중)"}`;
@@ -534,17 +530,18 @@ function describe(ev) {
       const w = ev.err & 2 ? "쓰기" : "읽기", p = ev.err & 1 ? "권한 위반" : "매핑 안 된 페이지";
       const sym = ev.user ? T.usyms[`${ev.prog}@${ev.rip.toString(16)}`] : null;
       const at = ev.user ? `유저 코드 ${hex(ev.rip)}${sym ? ` (${esc(sym.fn)}${sym.loc ? " " + esc(sym.loc) : ""})` : ""}` : `커널 코드 ${esc(ev.ksym || hex(ev.rip))}${ev.kloc ? " " + esc(ev.kloc) : ""}`;
-      const code = T.exitCode[ev.by], after = T.exited[ev.by] != null ? ` → 이후 종료 (exit(${code ?? -1}))` : "";
-      return `<b>${by}</b> page fault: 주소 <b>${hex(ev.addr)}</b> ${w} (${p}) · ${at}${after}`;
+      const code = T.exitCode[ev.by], after = ev.vmok ? "" : T.exited[ev.by] != null ? ` → 이후 종료 (exit(${code ?? -1}))` : "";
+      const vm = ev.vmok ? ` → <b>처리함</b>: ${ev.vmk}` : ev.died ? " → fault 처리 중에 프로세스가 끝났어요 (exit(-1) 등)" : ev.vmok === false ? " → vm_try_handle_fault가 false 반환" : "";
+      return `<b>${by}</b> page fault: 주소 <b>${hex(ev.addr)}</b> ${w} (${p}) · ${at}${vm}${after}`;
     }
     case "wait": return `<b>${by}</b>가 process_wait(${ev.child}) 진입`;
     case "exit": return `<b>${tname(ev.target)}</b> 종료 (thread_exit → process_exit)${ev.target in T.exitCode ? ` · exit(${T.exitCode[ev.target]})` : T.uentered[ev.target] ? " · exit 시스템 콜 없이 종료 (커널이 죽임 → -1)" : ""}`;
     case "out": return `<b>${by}</b> 콘솔 출력: <span class="mono">${esc(ev.text)}</span>`;
     case "end": return "테스트 종료 (power_off)";
     case "panic": return `<b>Kernel PANIC</b> at ${esc(ev.file)}:${ev.line} in ${esc(ev.func)}() — "${esc(ev.msg)}" (실행 중: ${by})`;
-    case "timeout": return `<b>시간 초과</b> — ${ev.secs}초 안에 안 끝나서 멈춤 (무한루프/데드락 의심)${stuckHtml(ev)}`;
-    case "aborted": return `<b>중단됨</b> — power_off 전에 연결이 끊김${stuckHtml(ev)}`;
-    case "smash": return `<b>${by}</b>: ${esc(ev.sys)} 시스템 콜에서 돌아올 때 struct thread의 magic이 깨져 있음 (커널 스택 넘침)`;
+    case "timeout": return `<b>시간 초과</b> — ${ev.secs}초 안에 끝나지 않아서 멈췄어요 (무한루프나 데드락일 수 있어요)${stuckHtml(ev)}`;
+    case "aborted": return `<b>중단됨</b> — power_off 전에 연결이 끊겼어요${stuckHtml(ev)}`;
+    case "smash": return `<b>${by}</b>: ${esc(ev.sys)} 시스템 콜에서 돌아올 때 struct thread의 magic이 깨져 있어요 (커널 스택 넘침)`;
     case "dclose": return `<b>${by}</b>가 이미 닫은 파일 ${ev.fp}를 다시 file_close · ${ev.stack2.map((f, k) => esc(f) + (ev.locs2[k] ? ` <span class="note">(${esc(ev.locs2[k])})</span>` : "")).join(" ← ")}`;
   }
   return ev.kind;
@@ -566,7 +563,8 @@ function short(ev) {
     case "create": return `생성 → ${tname(ev.target)}`;
     case "exec": return `exec "${esc(ev.cmd)}"`;
     case "uentry": return ev.via === "__do_fork" ? `유저 복귀 (fork 자식, rax=${ev.regs.rax})` : `유저 시작 argc=${ev.regs.rdi}`;
-    case "fault": return ev.vec != null ? `예외 ${vecName(ev.vec).split(" ")[0]}` : `page fault @${hex(ev.addr)}${ev.user ? "" : " (커널)"}`;
+    case "fault": if (ev.died) return `page fault @${hex(ev.addr)} · 처리 중 종료`;
+      return ev.vec != null ? `예외 ${vecName(ev.vec).split(" ")[0]}` : `page fault @${hex(ev.addr)}${ev.user ? "" : " (커널)"}${ev.vmok ? " · " + ev.vmk.split(" (")[0] : ev.vmok === false ? " · 처리 실패" : ""}`;
     case "wait": return `process_wait(${ev.child})`;
     case "exit": return `종료 ${tname(ev.target)}`;
     case "out": return `› ${esc(ev.text)}`;
@@ -581,6 +579,7 @@ function isHidden(ev) {
   if (ev.viol.length) return false;
   if ($("f-boot").checked && ev.boot && ev.kind === "out") return true;
   if ($("f-out").checked && ev.kind === "out") return true;
+  if (VM_MODE && $("f-vmf").checked && ev.kind === "fault" && ev.vmok) return true;
   // 같은 스레드 이벤트만 사이에 있으면 반환을 호출 줄에 합쳐 보여주므로 sysret은 숨김
   if (ev.kind === "sysret" && T.events.slice(ev.call + 1, ev.i).every(e => e.by === ev.by)) return true;
   return false;
@@ -595,7 +594,7 @@ function render() {
   $("pos").textContent = `${idx + 1}/${view.length} · tick ${ev.tick ?? "?"}`;
   $("desc").innerHTML = `<span class="kind">${ev.kind}</span>${describe(ev)}` +
     // 기록 재생으로 이 이벤트 시점에 gdb를 멈춤 (debug.html). icount가 없으면(기록 없이 돈 실행) 디버거 쪽에서 다시 실행을 제안함
-    ` <a class="dbg" target="_blank" href="debug.html?mode=userprog&test=${encodeURIComponent(T.name)}${ev.ic != null ? "&ev=" + ev.i : ""}">${ev.ic != null ? "이 시점부터 디버그 ↗" : "디버거 ↗"}</a>`;
+    ` <a class="dbg" target="_blank" href="debug.html?mode=${VM_MODE ? "vm" : "userprog"}&test=${encodeURIComponent(T.name)}${ev.ic != null ? "&ev=" + ev.i : ""}">${ev.ic != null ? "이 시점부터 디버그" : "디버거"}<i class="ic i-link"></i></a>`;
   // call stack: 커널 위치 + (있으면) 유저 코드 위치
   const frames = (ev.stack || []).map((f, k) => [f, (ev.locs || [])[k]]);
   const us = ev.kind === "fault" && ev.user ? T.usyms[`${ev.prog}@${ev.rip.toString(16)}`]
@@ -606,22 +605,24 @@ function render() {
   $("stack").innerHTML = frames.length ? "call stack: " + frames.map(([f, l], k) => l
     ? `<a data-k="${k}" class="${k === srcSel.k ? "sel" : ""}">${esc(f)} (${esc(l.split("/").pop())})</a>` : esc(f)).join(" ← ") : "";
   $("stack").querySelectorAll("a").forEach(a => a.onclick = () => { srcSel.k = +a.dataset.k; render(); });
-  $("viol").innerHTML = ev.viol.length ? `<div class="viol">${ev.viol.map(v => `<div class="${v.lvl}">${v.msg}</div>`).join("")}</div>` : "";
+  $("viol").innerHTML = ev.viol.length ? `<div class="viol">${ev.viol.map(v => `<div class="${v.lvl}">${v.lvl === "warn" ? "참고: " : ""}${v.msg}</div>`).join("")}</div>` : "";
   showSource(frames[srcSel.k] && frames[srcSel.k][1]);
   const S = stateAt(ev.i);
   renderTree(ev, S);
   renderSched(ev, S);
   renderStack(ev);
   renderFd(ev, S);
+  renderVm(ev);
   document.querySelectorAll("#events div.cur").forEach(d => d.classList.remove("cur"));
   const row = $("events").querySelector(`div[data-k="${idx}"]`);
   if (row) { row.classList.add("cur"); row.scrollIntoView({ block: "nearest" }); }
-  drawTimeline(); drawMem();
+  tl.cursor(idx);
+  $("mem-now").textContent = ev.cnt ? `지금: user ${ev.cnt[0]} · kernel ${ev.cnt[1]} 페이지 · 파일 ${ev.cnt[2]}개` : "";
   try { history.replaceState(null, "", "#" + encodeURIComponent(T.name) + "/" + idx); } catch (e) {}
 }
 
 function showSource(loc) {
-  if (!loc || !T.sources) { $("src-title").textContent = "소스 위치 없음"; $("src").innerHTML = ""; return; }
+  if (!loc || !T.sources) { $("src-title").textContent = "소스 위치가 없어요"; $("src").innerHTML = ""; return; }
   const path = loc.slice(0, loc.lastIndexOf(":")), ln = +loc.slice(loc.lastIndexOf(":") + 1);
   const lines = (T.sources[path] || "").split("\n");
   $("src-title").textContent = loc;
@@ -650,7 +651,7 @@ function renderTree(ev, S) {
     return `<li><span class="node${ev.by === j || ev.target === j ? " me" : ""}${gone ? " gone" : ""}" style="--c:${color(j)}">
       <span class="nm">${tlabel(j)}</span>${prog}<span class="st st-${st}">${gone ? "" : st}</span>${gone ? "" : priText(S, j)}<span class="sub">${doing}</span></span>${sub ? `<ul>${sub}</ul>` : ""}</li>`;
   };
-  $("tree").innerHTML = (kids.root || []).map(node).join("") || '<li class="note">아직 프로세스 없음</li>';
+  $("tree").innerHTML = (kids.root || []).map(node).join("") || '<li class="note">아직 프로세스가 없어요</li>';
 }
 
 // Project 1 뷰어의 "이벤트 직후 상태"와 같은 레인. 노란 배경 = 직전 이벤트 뒤와 비교해 바뀐 것
@@ -687,7 +688,7 @@ function renderSched(ev, S) {
     const meta = o.h !== undefined ? `주인: <b>${o.h == null ? "없음" : tlabel(o.h)}</b>` : `값: <b>${o.v}</b>`;
     return `<div class="sync${changed ? " changed" : ""}"><div><b>${esc(id)}</b><span class="kd">${o.h !== undefined ? "lock" : "sema"}</span><div class="meta">${meta}</div></div>` +
       `<div class="row">${list(o.w, "대기자 없음")}</div></div>`;
-  }).join("") || '<span class="empty">잡힌 lock / 기다리는 sema 없음</span>';
+  }).join("") || '<span class="empty">잡힌 lock이나 기다리는 sema가 없어요</span>';
 
   // 대기 체인: lock 대기열의 스레드 -> 그 lock의 주인. 아무도 안 기다리는 스레드(leaf)에서 시작해 주인을 따라감
   const next = {};
@@ -705,11 +706,11 @@ function renderSched(ev, S) {
     return `<div class="row" style="min-height:0;margin-bottom:8px">${out}</div>`;
   });
   // 모두가 서로를 기다리는 순환은 leaf가 없어서 위에서 안 잡힘
-  if (!chains.length && Object.keys(next).length) chains.push('<div class="don">lock 대기가 순환함 (데드락)</div>');
+  if (!chains.length && Object.keys(next).length) chains.push('<div class="don">lock 대기가 순환해요 (데드락)</div>');
   const dons = !L.dons ? [] : ids.filter(j => S.pri[j] && S.pri[j][2] && S.pri[j][2].length).map(j =>
     `<div class="sync"><div><b>${tlabel(j)}</b><div class="meta">donations · pri ${S.pri[j][0]} / base ${S.pri[j][1]}</div></div><div class="row">${list(S.pri[j][2], "", false)}</div></div>`);
-  $("don").innerHTML = (chains.length ? chains.join("") : '<span class="empty">lock을 기다리는 스레드 없음</span>') +
-    (dons.length ? `<div style="margin-top:8px">${dons.join("")}</div>` : L.dons !== false ? "" : '<div class="empty">struct thread에서 donations 리스트를 못 찾음</div>');
+  $("don").innerHTML = (chains.length ? chains.join("") : '<span class="empty">lock을 기다리는 스레드가 없어요</span>') +
+    (dons.length ? `<div style="margin-top:8px">${dons.join("")}</div>` : L.dons !== false ? "" : '<div class="empty">struct thread에서 donations 리스트를 찾지 못했어요</div>');
 }
 function priText(S, j) {
   const p = S.pri[j];
@@ -722,7 +723,7 @@ function renderStack(ev) {
   const ents = T.events.filter(e => e.kind === "uentry");
   const cur = [...ents].reverse().find(e => e.i <= ev.i && e.via === "process_exec") || ents.find(e => e.via === "process_exec");
   const el = $("tp-stack");
-  if (!cur) { el.innerHTML = '<div class="note">유저 프로그램 진입(process_exec → do_iret)이 기록되지 않음. load가 실패했거나 initd가 process_exec까지 못 감</div>'; return; }
+  if (!cur) { el.innerHTML = '<div class="note">유저 프로그램 진입(process_exec → do_iret) 기록이 없어요. load가 실패했거나 initd가 process_exec까지 가지 못했어요</div>'; return; }
   const pick = ents.filter(e => e.via === "process_exec").map(e =>
     `<a class="jump" data-i="${e.i}"${e === cur ? ' style="font-weight:700"' : ""}>${tname(e.by)}: "${esc(e.cmd)}"</a>`).join(" · ");
   const r = cur.regs, chk = cur.args_check, sv = stackView(cur);
@@ -756,9 +757,125 @@ function renderStack(ev) {
   // fork 자식 진입도 같이 보여줌 (rax = 0인지)
   const forks = ents.filter(e => e.via === "__do_fork");
   if (forks.length) html += `<div class="note" style="margin-top:10px">fork 자식 유저 복귀: ${forks.map(e =>
-    `<a class="jump" data-i="${e.i}">${tname(e.by)} rax=${e.regs.rax}${e.viol.length ? " ⚠" : ""}</a>`).join(" · ")}</div>`;
+    `<a class="jump" data-i="${e.i}">${tname(e.by)} rax=${e.regs.rax}${vmark(e)}</a>`).join(" · ")}</div>`;
   el.innerHTML = html;
   el.querySelectorAll("a.jump").forEach(a => a.onclick = () => jump(+a.dataset.i));
+}
+
+// ---- Project 3: 페이지 상태 ----
+// 트레이서가 이벤트마다 붙인 변화(ev.vm)를 처음부터 쌓아서 프로세스별 페이지 표를 만듦. 학생 SPT를 직접 읽은 게 아님
+// a: SPT에 들어감(uninit_new) t: lazy 로딩(initializer) m/u: 프레임 매핑/해제(pml4) o/i: swap out/in d: 제거(destroy) x: 페이지 테이블 제거
+const VM_TY = ["uninit", "anon", "file", "page cache"];
+const pgOf = a => a - a % 4096;
+function vmApply(P, d, warn) {
+  const [c, o, va] = d, M = P[o] || (P[o] = new Map());
+  if (c === "x") { for (const p of M.values()) if (p.st === "mem") { p.st = "unmapped"; p.kva = null; } return; }
+  if (c === "a") { M.set(va, { ty: d[3] & 7, raw: d[3], cur: 0, w: d[4], init: d[5], st: "lazy", kva: null }); return; }
+  if (c === "d") { M.delete(va); return; }
+  let p = M.get(va);
+  // destroy 훅은 함수 진입에서 불려서 그 안의 pml4_clear_page(u)가 지운 뒤에 옴. 없는 페이지의 u/o/i는 무시
+  if (!p && "uoi".includes(c)) return;
+  if (!p) M.set(va, p = { ty: null, cur: null, w: null, st: "lazy", kva: null, nospt: true });
+  if (c === "t") { p.cur = d[3]; p.ty = p.ty ?? d[3]; }
+  else if (c === "m") { p.st = "mem"; p.kva = d[3]; p.rw = d[4]; }
+  else if (c === "u") { if (p.st === "mem") p.st = "unmapped"; p.kva = null; }
+  else if (c === "o") { p.st = (p.cur ?? p.ty) === 2 ? "out" : "swap"; p.kva = null; p.swapped = true; }
+  // 스켈레톤 vm_do_claim_page는 매핑(m)을 먼저 하고 swap_in을 부르므로 상태 대신 내보낸 적이 있는지로 봄
+  else if (c === "i") { if (warn && !p.swapped) warn(`${hex(va)}는 내보낸(swap out) 적이 없는데 swap_in을 불렀어요`); p.swapped = false; }
+}
+let vmCache = null;
+function vmAt(i) {   // 이벤트 i까지의 변화를 반영한 상태. 앞으로 갈 때는 이어서 계산함
+  if (!vmCache || vmCache.T !== T || vmCache.i > i) vmCache = { T, i: -1, P: {} };
+  for (let k = vmCache.i + 1; k <= i; k++) for (const d of T.events[k].vm || []) vmApply(vmCache.P, d);
+  vmCache.i = i;
+  return vmCache.P;
+}
+const STACK_MAX = 1 << 20;
+// writable(w)를 못 읽었으면 null이라 쓰기 fault의 "처리 안 됨" 검사는 건너뜀
+function vmCheck(T, add) {
+  const P = {}, pend = {};   // pend: 스레드 -> 그 스레드가 직전 이벤트 뒤로 바꾼 것 (다른 스레드 이벤트에 붙어 왔을 수 있음)
+  let nbad = 0;
+  for (const ev of T.events) {
+    const isPf = ev.kind === "fault" && ev.vec == null && ev.addr != null;
+    const va = isPf ? pgOf(ev.addr) : null;
+    (ev.vm || []).forEach((d, k) => {
+      const p = pend[ev.vmby ? ev.vmby[k] : ev.by] ??= { ds: [], pre: new Map() }, key = d[1] + ":" + d[2], cur = P[d[1]]?.get(d[2]);
+      if (!p.pre.has(key)) p.pre.set(key, cur && { ...cur });
+      p.ds.push(d);
+      vmApply(P, d, msg => add(ev, "warn", msg));
+    });
+    const my = pend[ev.by] || { ds: [], pre: new Map() }, key = ev.by + ":" + va, now0 = P[ev.by]?.get(va);
+    const was = my.pre.has(key) ? my.pre.get(key) : now0 && { ...now0 }, ds = my.ds;
+    if (ev.kind !== "out" && ev.kind !== "dclose") delete pend[ev.by];   // fault 처리 중의 출력/파일 닫기는 그 fault를 끊지 않음
+    // 트레이서는 gdb로 못 읽는 포인터를 잘못된 포인터로 봄. VM에선 SPT에 있는데 아직 안 올린 페이지일 수 있으니 뺌
+    if (ev.kind === "sys" && ev.bad && ev.bad.length) {
+      const M = P[ev.by], ok = a => a < KERN_BASE && !!M?.has(pgOf(a));
+      ev.bad = ev.bad.filter(k => {
+        const v = ev.args[k], n = ev.sig[k] === "b" ? ev.args[k + 1] : 1;
+        if (!ok(v) || !ok(v + n - 1)) return true;
+        (ev.lazy = ev.lazy || []).push(k);
+        return false;
+      });
+    }
+    if (!isPf || ev.vmok == null) continue;
+    const mine = ds.filter(d => d[1] === ev.by && d[2] === va), has = c => mine.some(d => d[0] === c);
+    const now = P[ev.by]?.get(va), write = ev.err & 2, present = ev.err & 1;
+    const outs = ds.filter(d => d[0] === "o").length;
+    if (ev.vmok) {
+      ev.vmk = has("a") ? "스택 확장" : has("i") ? "swap in" : has("t") ? `lazy 로딩 (${VM_TY[now?.cur] ?? "?"}${now?.init ? ", " + now.init : ""})`
+        : present && has("m") ? "쓰기 권한 처리 (copy-on-write)" : has("m") ? "프레임에 올림" : "매핑 변화 없음";
+      if (outs) ev.vmk += ` · 다른 페이지 ${outs}개 내보냄`;
+      if (ev.addr >= KERN_BASE || va === 0) add(ev, "err", `${va === 0 ? "NULL 근처" : "커널"} 주소 ${hex(ev.addr)}의 fault를 vm_try_handle_fault가 처리했다고(true) 반환했어요. 유저 영역이 아니면 false를 반환해야 해요`);
+      else if (!now || now.st !== "mem") add(ev, "err", `vm_try_handle_fault가 true를 반환했는데 ${hex(va)} 페이지를 프레임에 매핑하지 않았어요 (pml4_set_page를 부르지 않았어요). 같은 주소에서 fault가 계속 나요`);
+      if (write && was && was.w === false) add(ev, "err", `쓰기 금지 페이지 ${hex(va)}(${was.init ? esc(was.init) + "로 올린 " : ""}writable=false)에 쓰기 fault를 처리했어요. false를 반환해서 프로세스를 끝내야 해요 (pt-write-code 등)`);
+      else if (write && now?.st === "mem" && now.rw === false && has("m")) add(ev, "err", `쓰기 fault를 처리하면서 ${hex(va)}를 읽기 전용으로 매핑했어요. 같은 쓰기에서 다시 fault가 나요`);
+      if (has("a")) {
+        if (ev.user && ev.addr < ev.rsp - 8) add(ev, "err", `rsp(${hex(ev.rsp)})보다 ${ev.rsp - ev.addr}바이트 아래를 건드렸는데 스택을 늘렸어요. rsp - 8 아래 접근은 잘못된 접근이에요 (pt-grow-bad)`);
+        if (va < USER_STACK - STACK_MAX) add(ev, "err", `스택을 1MB 넘게 늘렸어요 (${hex(va)}). USER_STACK - 1MB 아래는 거부해야 해요`);
+      }
+    } else if (!present && was && (was.st !== "mem") && !(write && was.w !== true) && ev.addr < KERN_BASE)
+      add(ev, "err", `${hex(va)}는 SPT에 있는 페이지(${was.st === "lazy" ? "아직 안 올린 " + (VM_TY[was.ty] ?? "") : was.st === "swap" ? "swap된" : was.st === "out" ? "파일로 내보낸" : "매핑 해제된"} 페이지)인데 vm_try_handle_fault가 false를 반환했어요. 여기서 프레임을 받아 올려야 해요`);
+    else if (!present && !was && ev.user && !ev.died && ev.addr < USER_STACK && ev.addr >= USER_STACK - STACK_MAX && ev.addr >= ev.rsp - 8)
+      add(ev, "err", `rsp(${hex(ev.rsp)}) 근처 스택 주소 ${hex(ev.addr)}의 fault인데 스택을 늘리지 않았어요 (pt-grow-stack). USER_STACK - 1MB 안이고 rsp - 8 이상이면 페이지를 새로 만들어야 해요`);
+    if (ev.viol.some(v => v.lvl === "err")) nbad++;
+  }
+  T.vmbad = nbad;
+}
+function renderVm(ev) {
+  if (!T.vm || $("tp-vm").hidden) return;
+  const P = vmAt(ev.i), touched = new Set((ev.vm || []).map(d => d[1] + ":" + d[2]));
+  let mem = 0, swp = 0, out = 0;
+  const cnt = { f: 0, ok: 0, o: 0, i: 0 };
+  for (let k = 0; k <= ev.i; k++) {
+    const e = T.events[k];
+    if (e.kind === "fault" && e.vec == null) { cnt.f++; if (e.vmok) cnt.ok++; }
+    for (const d of e.vm || []) if (d[0] === "o" || d[0] === "i") cnt[d[0]]++;
+  }
+  const procs = Object.keys(P).filter(o => P[o].size);
+  const st = p => ({ lazy: "lazy (아직 안 올림)", mem: "메모리", swap: "swap 디스크", out: "파일로 내보냄", unmapped: "매핑 해제됨" })[p.st];
+  const kind = p => p.nospt ? "SPT 기록 없음" : p.cur === 0 ? `uninit → ${VM_TY[p.ty] ?? p.ty}` : VM_TY[p.cur] ?? "?";
+  const mark = p => [p.raw & 8 ? "MARKER_0" : "", p.raw & 16 ? "MARKER_1" : ""].filter(Boolean).join(" ");
+  const tables = procs.map(o => {
+    const M = P[o], vas = [...M.keys()].sort((a, b) => a - b), rows = [];
+    for (const va of vas) {
+      const p = M.get(va); if (p.st === "mem") mem++; if (p.st === "swap") swp++; if (p.st === "out") out++;
+      const key = [kind(p), p.w, p.st, p.init, mark(p)].join("|"), hl = touched.has(o + ":" + va), last = rows[rows.length - 1];
+      if (last && last.key === key && last.end + 4096 === va && last.hl === hl) { last.end = va; last.n++; }
+      else rows.push({ key, start: va, end: va, n: 1, p, hl });
+    }
+    const gone = T.exited[o] != null && T.exited[o] <= ev.i;
+    return `<div style="margin-bottom:10px"><b style="color:${o === "null" ? "inherit" : color(+o)}">${o === "null" ? "? (pml4 주인 모름)" : tlabel(+o)}</b>${gone ? ' <span class="st st-EXIT">종료됨</span>' : ""} <span class="note">페이지 ${M.size}개</span>
+      <div class="tblwrap"><table><thead><tr><th>va</th><th>개수</th><th>종류</th><th>쓰기</th><th>상태</th><th>초기화 함수 / kva</th></tr></thead><tbody>${rows.map(r => {
+        const p = r.p;
+        return `<tr${r.hl ? ' class="hl"' : ""}><td class="mono">${hex(r.start)}${r.n > 1 ? " – " + hex(r.end + 4095) : ""}</td><td>${r.n}</td><td>${kind(p)}${mark(p) ? ` <span class="note">${mark(p)}</span>` : ""}</td>
+          <td>${p.w == null ? "?" : p.w ? "O" : "읽기 전용"}</td><td>${st(p)}${p.st === "mem" && p.rw === false && p.w ? ' <span class="note">(읽기 전용으로 매핑)</span>' : ""}</td>
+          <td class="mono">${p.st === "mem" && r.n === 1 ? "kva " + hex(p.kva) : esc(p.init ?? "")}</td></tr>`;
+      }).join("")}</tbody></table></div></div>`;
+  });
+  $("tp-vm").innerHTML = `<div class="kv"><span>프레임 사용 <b>${mem}</b>${T.vm.upool ? " / " + T.vm.upool + " (user pool)" : ""}</span><span>swap된 페이지 <b>${swp}</b></span>${out ? `<span>파일로 내보낸 페이지 <b>${out}</b></span>` : ""}
+    <span>page fault ${cnt.f}번 (처리 ${cnt.ok})</span><span>swap out ${cnt.o} · swap in ${cnt.i}</span></div>` +
+    (tables.join("") || '<div class="note">아직 SPT에 들어간 페이지가 없어요</div>') +
+    `<div class="note">이벤트 시점의 프로세스별 페이지 (노란 줄 = 이번 이벤트에서 바뀜). 학생 SPT를 직접 읽지 않고 원본 함수 호출로 재구성했어요: uninit_new(SPT에 추가) → anon/file_backed_initializer(lazy 로딩) → pml4_set_page/clear_page(프레임 매핑) → *_swap_out / *_swap_in → *_destroy(제거).${T.vm.ret ? "" : " vm_try_handle_fault의 복귀 지점을 찾지 못해서 fault 처리 결과는 없어요"}</div>`;
 }
 
 function renderFd(ev, S) {
@@ -770,8 +887,8 @@ function renderFd(ev, S) {
       <tr class="pad"><td>0</td><td>stdin (키보드)</td><td></td></tr><tr class="pad"><td>1</td><td>stdout (콘솔)</td><td></td></tr>
       ${ks.map(k => `<tr><td class="mono">${k}</td><td>${esc(f[k].name ?? "?")}</td><td><a class="jump" data-i="${f[k].ev}">${tname(T.events[f[k].ev].by)} 이벤트 ${f[k].ev}</a></td></tr>`).join("")}
       </tbody></table></div>`;
-  }).join("") : '<div class="note">아직 유저 프로세스 없음</div>') +
-    '<div class="note">시스템 콜 반환값으로 재구성한 fd 표임 (open 성공 → 추가, close → 삭제, fork → 부모 것 복사). 커널 안의 실제 표와 다르면 그 자체가 버그 신호임</div>';
+  }).join("") : '<div class="note">아직 유저 프로세스가 없어요</div>') +
+    '<div class="note">시스템 콜 반환값으로 재구성한 fd 표예요 (open 성공 → 추가, close → 삭제, fork → 부모 것 복사). 커널 안의 실제 표와 다르면 그 자체가 버그 신호예요</div>';
   $("tp-fd").querySelectorAll("a.jump").forEach(a => a.onclick = () => jump(+a.dataset.i));
 }
 
@@ -781,18 +898,18 @@ function renderFaults() {
   $("tp-fault").innerHTML = fs.length ? `<div class="tblwrap"><table><thead><tr><th>프로세스</th><th>주소</th><th>종류</th><th>위치</th><th>결과</th></tr></thead><tbody>${fs.map(e => {
     const sym = e.user ? T.usyms[`${e.prog}@${e.rip.toString(16)}`] : null;
     const at = e.user ? `유저 ${hex(e.rip)}${sym ? " " + esc(sym.fn) + (sym.loc ? " (" + esc(sym.loc) + ")" : "") : ""}` : `커널 ${esc(e.ksym || hex(e.rip))}${e.kloc ? " (" + esc(e.kloc) + ")" : ""}`;
-    const res = T.exited[e.by] != null ? `exit(${T.exitCode[e.by] ?? -1})` : "종료 안 됨";
+    const res = e.vmok ? esc(e.vmk) : T.exited[e.by] != null ? `exit(${T.exitCode[e.by] ?? -1})` : "종료 안 됨";
     return `<tr><td><a class="jump" data-i="${e.i}">${tname(e.by)}</a></td><td class="mono">${hex(e.addr)}</td>
-      <td>${e.vec != null ? vecName(e.vec) : `${e.err & 2 ? "쓰기" : "읽기"} · ${e.err & 1 ? "권한 위반" : "매핑 없음"} · ${e.err & 4 ? "유저 모드" : "커널 모드"}`}</td><td class="mono">${at}</td><td>${res}${e.viol.length ? " ⚠" : ""}</td></tr>`;
-  }).join("")}</tbody></table></div><div class="note">유저 프로그램이 잘못된 주소를 건드리면 커널은 그 프로세스를 exit(-1)로 끝내야 함 (bad-* 테스트). 커널 모드 fault는 시스템 콜 처리 중 유저 포인터를 그대로 썼다는 뜻</div>`
-    : '<div class="note">page fault 없음</div>';
+      <td>${e.vec != null ? vecName(e.vec) : `${e.err & 2 ? "쓰기" : "읽기"} · ${e.err & 1 ? "권한 위반" : "매핑 없음"} · ${e.err & 4 ? "유저 모드" : "커널 모드"}`}</td><td class="mono">${at}</td><td>${res}${vmark(e)}</td></tr>`;
+  }).join("")}</tbody></table></div><div class="note">${T.vm ? "Project 3에서 처리함은 vm_try_handle_fault가 true를 반환했다는 뜻이에요 (lazy 로딩, swap in, 스택 확장 등). " : ""}유저 프로그램이 잘못된 주소를 건드리면 커널은 그 프로세스를 exit(-1)로 끝내야 해요 (bad-* 테스트). 커널 모드 fault는 시스템 콜 처리 중 유저 포인터를 그대로 썼다는 뜻이에요</div>`
+    : '<div class="note">page fault가 없어요</div>';
   $("tp-fault").querySelectorAll("a.jump").forEach(a => a.onclick = () => jump(+a.dataset.i));
 }
 
 function renderLeaks() {
   const L = T.leaks, el = $("tp-leak");
   if (!L) {
-    el.innerHTML = `<div class="note">${T.truncated ? "이벤트가 많아 중간에 기록을 멈춰서 누수 검사를 안 함" : "power_off까지 가지 못해서(시간 초과/중단) 누수 검사를 안 함"}</div>`;
+    el.innerHTML = `<div class="note">${T.truncated ? "이벤트가 많아 중간에 기록을 멈춰서 누수 검사를 하지 않았어요" : "power_off까지 가지 못해서(시간 초과/중단) 누수 검사를 하지 않았어요"}</div>`;
     $("tab-leak").classList.remove("alert"); return;
   }
   const real = L.pages.filter(p => !p.pending), pend = L.pages.filter(p => p.pending);
@@ -806,14 +923,14 @@ function renderLeaks() {
   let html = "";
   html += real.length ? `<h2 style="margin-top:0">해제 안 된 페이지 ${real.reduce((a, p) => a + p.n, 0)}개</h2><div class="tblwrap"><table><thead><tr><th>개수</th><th>풀</th><th>할당한 프로세스</th><th>할당 시점</th><th>소유자 종료</th><th>호출 경로 (palloc을 부른 쪽부터)</th></tr></thead><tbody>${
     group(real).map(g => `<tr><td>${g.reduce((a, p) => a + p.n, 0)}</td><td>${g[0].user ? "user" : "kernel"}</td><td>${[...new Set(g.map(p => tname(p.by)))].join(", ")}</td><td>${g.slice(0, 5).map(p => evLink(p.ev)).join(" ")}${g.length > 5 ? " …" : ""}</td><td>${exitHtml(g[0])}</td><td class="mono">${stackHtml(g[0])}</td></tr>`).join("")}</tbody></table></div>`
-    : `<div class="checks"><li>테스트 시작 후 할당한 페이지가 전부 해제됨</li></div>`;
+    : `<div class="checks"><li>테스트 시작 후 할당한 페이지를 전부 해제했어요</li></div>`;
   html += L.files.length ? `<h2>닫히지 않은 파일 ${L.files.length}개</h2><div class="tblwrap"><table><thead><tr><th>파일</th><th>연 프로세스</th><th>어떻게</th><th>연 시점</th><th>소유자 종료</th><th>호출 경로</th></tr></thead><tbody>${
     L.files.map(f => `<tr><td>${esc(f.name ?? "?")}</td><td>${tname(f.by)}</td><td>${{ open: "file_open", dup: "file_duplicate", reopen: "file_reopen" }[f.how]}</td><td>${evLink(f.ev)}</td><td>${exitHtml(f)}</td><td class="mono">${stackHtml(f)}</td></tr>`).join("")}</tbody></table></div>`
-    : `<div class="checks"><li>테스트 중에 연 파일이 전부 닫힘 (실행 파일 포함)</li></div>`;
+    : `<div class="checks"><li>테스트 중에 연 파일을 전부 닫았어요 (실행 파일 포함)</li></div>`;
   if (L.blocks) html += blk.length ? `<h2>free 안 된 malloc 블록 ${blk.length}개</h2><div class="tblwrap"><table><thead><tr><th>개수</th><th>크기 (바이트)</th><th>할당한 프로세스</th><th>할당 시점</th><th>소유자 종료</th><th>호출 경로 (malloc을 부른 쪽부터)</th></tr></thead><tbody>${
     group(blk).map(g => `<tr><td>${g.length}</td><td>${[...new Set(g.map(b => b.size))].join(", ")}</td><td>${[...new Set(g.map(b => tname(b.by)))].join(", ")}</td><td>${g.slice(0, 5).map(b => evLink(b.ev)).join(" ")}${g.length > 5 ? " …" : ""}</td><td>${exitHtml(g[0])}</td><td class="mono">${stackHtml(g[0])}</td></tr>`).join("")}</tbody></table></div>`
-    : `<div class="checks"><li>테스트 중에 malloc한 블록이 전부 free됨</li></div>`;
-  if (pend.length) html += `<div class="note">해제 대기 ${pend.length}개: 이미 종료된 스레드의 struct thread 페이지. 스케줄러가 다음 전환 때 지우므로(destruction_req) 누수가 아님</div>`;
+    : `<div class="checks"><li>테스트 중에 malloc한 블록을 전부 free했어요</li></div>`;
+  if (pend.length) html += `<div class="note">해제 대기 ${pend.length}개: 이미 종료된 스레드의 struct thread 페이지예요. 스케줄러가 다음 전환 때 지우므로(destruction_req) 누수가 아니에요</div>`;
   html += '<div class="note">기준: run_task 이후 palloc_get_page/multiple로 받고 power_off 때까지 palloc_free로 안 돌려준 페이지, file_open/file_duplicate로 열고 file_close 안 한 파일, malloc/calloc으로 받고 free 안 한 블록 (블록이 남아 같이 안 풀린 arena 페이지는 페이지 표에서 뺌)</div>';
   el.innerHTML = html;
   el.querySelectorAll("a.jump").forEach(a => a.onclick = () => jump(+a.dataset.i));
@@ -821,80 +938,78 @@ function renderLeaks() {
 
 // ---- 타임라인 ----
 function rows() { return T.threads.map((_, j) => j).filter(j => T.threads[j].name !== "idle"); }
-function drawTimeline() {
-  const cv = $("tl"), css = getComputedStyle(document.documentElement), ids = rows();
-  const L = 120, rowH = 18, H = ids.length * rowH + 6;
-  const W = Math.max(cv.parentElement.clientWidth, Math.min(view.length * 6, 8000) + L), step = (W - L) / view.length;
-  const dpr = window.devicePixelRatio || 1, key = css.getPropertyValue("--run") + "|" + dpr;
-  if (!tlCache || tlCache.view !== view || tlCache.W !== W || tlCache.key !== key) {
-    const off = document.createElement("canvas"); off.width = W * dpr; off.height = H * dpr;
-    const g = off.getContext("2d"); g.scale(dpr, dpr);
-    const col = s => css.getPropertyValue({ RUNNING: "--run", READY: "--ready", BLOCKED: "--blocked" }[s] || "--line");
-    const rowOf = {}; ids.forEach((j, r) => rowOf[j] = r);
-    g.font = "12px system-ui"; g.textBaseline = "middle";
-    ids.forEach((j, r) => { g.fillStyle = css.getPropertyValue("--text"); g.fillText(T.threads[j].name + (T.threads[j].tid != null ? " " + T.threads[j].tid : ""), 4, r * rowH + 3 + rowH / 2); });
-    // 상태는 이벤트 순서대로 누적. 화면에 안 보이는(숨긴) 이벤트의 변화도 반영함
-    const st = {}, gone = {};
-    let vi = 0;
-    T.events.forEach((e, i) => {
-      if (e.st) Object.assign(st, e.st);
-      if (e.kind === "exit") gone[e.target] = true;
-      while (vi < view.length && view[vi].i < i) vi++;
-      if (vi >= view.length || view[vi].i !== i) return;
-      const x = L + vi * step;
-      const nx = T.events[i + 1] && T.events[i + 1].st ? { ...st, ...T.events[i + 1].st } : st;
-      ids.forEach((j, r) => {
-        if (gone[j] || !nx[j]) return;
-        g.fillStyle = col(nx[j]); g.globalAlpha = .55;
-        g.fillRect(x, r * rowH + 6, Math.max(step, 1), rowH - 8);
-        g.globalAlpha = 1;
-      });
-      const r = rowOf[e.by], y = r * rowH + 3 + rowH / 2;
-      const mark = (c, h) => { g.fillStyle = css.getPropertyValue(c); g.fillRect(x + step / 2 - 1.5, y - h / 2, 3, h); };
-      if (e.kind === "sys" && r != null) mark(PROC.has(e.name) ? "--proc" : ["write", "read"].includes(e.name) && e.args[0] < 2 ? "--muted" : "--file", 10);
-      if (e.kind === "fault" && r != null) mark("--dying", 14);
-      if (e.kind === "uentry" && r != null) mark("--run", 14);
-      if (e.kind === "create" && r != null && rowOf[e.target] != null) {
-        g.strokeStyle = css.getPropertyValue("--proc"); g.lineWidth = 1.5; g.beginPath();
-        g.moveTo(x + step / 2, y); g.lineTo(x + step / 2, rowOf[e.target] * rowH + 3 + rowH / 2); g.stroke();
-      }
-      if (e.kind === "exit" && rowOf[e.target] != null) {
-        const ty = rowOf[e.target] * rowH + 3 + rowH / 2;
-        g.strokeStyle = css.getPropertyValue("--text"); g.lineWidth = 1.5; g.beginPath();
-        g.moveTo(x + step / 2 - 4, ty - 4); g.lineTo(x + step / 2 + 4, ty + 4); g.moveTo(x + step / 2 + 4, ty - 4); g.lineTo(x + step / 2 - 4, ty + 4); g.stroke();
-      }
-      if (e.viol.some(v => v.lvl === "err")) { g.fillStyle = css.getPropertyValue("--dying"); g.fillRect(x, 0, Math.max(step, 2), 3); }
-    });
-    tlCache = { view, W, off, key, H, step, L };
-  }
-  cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + "px"; cv.style.height = H + "px";
-  const g = cv.getContext("2d"); g.drawImage(tlCache.off, 0, 0); g.scale(dpr, dpr);
-  g.fillStyle = css.getPropertyValue("--text"); g.globalAlpha = .7;
-  g.fillRect(L + idx * step + step / 2 - 1, 0, 2, H); g.globalAlpha = 1;
-  cv.onclick = e => { const x = e.offsetX - L; if (x >= 0) { idx = Math.floor(x / step); render(); } };
-}
-
-function drawMem() {
-  const cv = $("mem"), css = getComputedStyle(document.documentElement);
-  const L = 120, H = 70, W = $("tl").width / (window.devicePixelRatio || 1) || cv.parentElement.clientWidth, step = (W - L) / view.length;
-  const dpr = window.devicePixelRatio || 1;
-  cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + "px"; cv.style.height = H + "px";
-  const g = cv.getContext("2d"); g.scale(dpr, dpr);
+const ST_NAME = ["RUNNING", "READY", "BLOCKED", "그 외"], MEM_H = 70;
+let tlIds = [], tlRowOf = {}, tlMem = null;
+const tl = Timeline($("tl"), { store: "uv-zoom", ctl: $("tl-ctl"), alpha: .55, lane: true,
+  pick: i => { idx = i; render(); },
+  tip: (i, r, c) => { const e = view[i];
+    const who = r >= 0 ? `<div><b>${tname(tlIds[r])}</b> ${c ? ST_NAME[c - 1] : ""}</div>` : e.by != null ? `<div><b>${tname(e.by)}</b></div>` : "";
+    const mem = r < 0 && e.cnt ? `<div>페이지 ${e.cnt[0] + e.cnt[1]} · 파일 ${e.cnt[2]}</div>` : "";
+    return `<div class="t mono">#${i + 1} · tick ${e.tick ?? "?"}</div>${who}<div>${short(e)}</div>${mem}`; },
+  marks: drawMarks });
+// 보기(view)가 바뀔 때 한 번만 상태 코드와 메모리 값을 계산해 둠
+function setTimeline() {
+  const ids = tlIds = rows(), R = ids.length, codes = new Uint8Array(view.length * R);
+  tlRowOf = {}; ids.forEach((j, r) => tlRowOf[j] = r);
+  const code = { RUNNING: 1, READY: 2, BLOCKED: 3 };
+  // 상태는 이벤트 순서대로 누적. 화면에 안 보이는(숨긴) 이벤트의 변화도 반영함
+  const st = {}, gone = {};
+  let vi = 0;
+  T.events.forEach((e, i) => {
+    if (e.st) Object.assign(st, e.st);
+    if (e.kind === "exit") gone[e.target] = true;
+    while (vi < view.length && view[vi].i < i) vi++;
+    if (vi >= view.length || view[vi].i !== i) return;
+    const nx = T.events[i + 1] && T.events[i + 1].st ? { ...st, ...T.events[i + 1].st } : st;
+    ids.forEach((j, r) => { if (!gone[j] && nx[j]) codes[vi * R + r] = code[nx[j]] || 4; });
+  });
   const pg = view.map(e => e.cnt ? e.cnt[0] + e.cnt[1] : 0), fl = view.map(e => e.cnt ? e.cnt[2] : 0);
-  const mp = Math.max(1, ...pg), mf = Math.max(1, ...fl);
-  g.font = "11px system-ui"; g.textBaseline = "middle"; g.fillStyle = css.getPropertyValue("--muted");
-  g.fillStyle = css.getPropertyValue("--accent"); g.fillText(`— 페이지 (최대 ${mp})`, 4, 16);
-  g.fillStyle = css.getPropertyValue("--file"); g.fillText(`— 파일 (최대 ${mf})`, 4, 34);
+  let mp = 1, mf = 1;   // 이벤트가 많으면 Math.max(...arr)가 스택 한도를 넘을 수 있어서 반복문으로 구함
+  for (let k = 0; k < view.length; k++) { if (pg[k] > mp) mp = pg[k]; if (fl[k] > mf) mf = fl[k]; }
+  tlMem = { pg, fl, mp, mf };
+  tl.data({ n: view.length, codes, colors: ["--run", "--ready", "--blocked", "--line"],
+    rows: ids.map(j => { const t = T.threads[j]; return `<span title="${esc(t.name)}">${esc(t.name)}${t.tid != null ? ` <small class="mono">${t.tid}</small>` : ""}</span>`; }),
+    bad: view.flatMap((e, k) => e.viol.some(v => v.lvl === "err") ? [k] : []),
+    band: { h: MEM_H, label: `<div style="color:var(--accent)">페이지 · 최대 ${mp}</div><div style="color:var(--file)">파일 · 최대 ${mf}</div>` } });
+}
+// 줄 위 표시(시스템 콜·fault·유저 진입·생성 선·종료 X)와 맨 아래 메모리 그래프. 축소해서 한 픽셀에 여럿이면 줄마다 하나만 그림
+// 표시 (범례와 같음): 시스템 콜·page fault = 막대 위 세로 눈금(색으로 구분), 자식 생성 = 부모 막대에서 자식 막대로 내려가는 선.
+// 종료는 막대가 끝나는 것으로 보임
+function drawMarks(g, v) {
+  const last = {}, w = Math.min(3, Math.max(2, v.step - 1));
+  const tick = (x, r, c, h) => { const [by] = v.bar(r); g.fillStyle = v.col(c); g.beginPath(); g.roundRect(x - w / 2, by - 1 - h, w, h, 1); g.fill(); };
+  for (let i = v.i0; i < v.i1; i++) {
+    const e = view[i], r = tlRowOf[e.by];
+    if (v.step < 1) { const k = e.by + "|" + (v.x(i) | 0) + e.kind; if (last[k]) continue; last[k] = 1; }
+    if (e.kind === "create" && r != null && tlRowOf[e.target] != null) {
+      const x = v.x(i), [py, ph] = v.bar(r), [cy] = v.bar(tlRowOf[e.target]), down = cy > py;
+      g.strokeStyle = g.fillStyle = v.col("--proc"); g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(x, down ? py + ph : py); g.lineTo(x, down ? cy - 4 : cy + ph + 4); g.stroke();
+      g.beginPath(); g.moveTo(x - 3, down ? cy - 4 : cy + ph + 4); g.lineTo(x + 3, down ? cy - 4 : cy + ph + 4); g.lineTo(x, down ? cy : cy + ph); g.closePath(); g.fill();
+    }
+    if (r == null) continue;
+    if (e.kind === "sys") {
+      const con = ["write", "read"].includes(e.name) && e.args[0] < 2;
+      tick(v.x(i), r, PROC.has(e.name) ? "--proc" : con ? "--blocked" : "--file", con ? 4 : 6);
+    }
+    if (e.kind === "fault") tick(v.x(i), r, e.vmok ? "--sleep" : "--dying", 7);
+  }
+  // 메모리 그래프: 계단선. 한 칸(이벤트 또는 1px 열)에 든 이벤트 중 최댓값
+  const base = v.top + MEM_H - 6;
+  g.fillStyle = v.col("--line"); g.fillRect(0, base, v.W, 1);
   const line = (vals, m, c) => {
-    g.strokeStyle = css.getPropertyValue(c); g.lineWidth = 1.5; g.beginPath();
-    vals.forEach((v, x) => { const px = L + x * step + step / 2, py = H - 4 - (v / m) * (H - 10); x ? g.lineTo(px, py) : g.moveTo(px, py); });
-    g.stroke();
+    const pts = [];
+    v.cols((a, b, xl, xr) => {
+      let mx = 0; for (let k = a; k < b; k++) if (vals[k] > mx) mx = vals[k];
+      pts.push([xl, xr, base - mx / m * (MEM_H - 16)]);
+    });
+    if (!pts.length) return;
+    const p = new Path2D();
+    pts.forEach(([xl, xr, py], k) => { k ? p.lineTo(xl, py) : p.moveTo(xl, py); p.lineTo(xr, py); });
+    g.strokeStyle = g.fillStyle = v.col(c); g.lineWidth = 1.5; g.lineJoin = "round";
+    g.stroke(p);
   };
-  line(pg, mp, "--accent"); line(fl, mf, "--file");
-  g.fillStyle = css.getPropertyValue("--text"); g.globalAlpha = .7; g.fillRect(L + idx * step + step / 2 - 1, 0, 2, H); g.globalAlpha = 1;
-  const e = view[idx];
-  $("mem-now").textContent = e && e.cnt ? `지금: user ${e.cnt[0]} · kernel ${e.cnt[1]} 페이지 · 파일 ${e.cnt[2]}개` : "";
-  cv.onclick = ev => { const x = ev.offsetX - L; if (x >= 0) { idx = Math.floor(x / step); render(); } };
+  line(tlMem.pg, tlMem.mp, "--accent"); line(tlMem.fl, tlMem.mf, "--file");
 }
 
 // ---- 탐색 ----
@@ -907,12 +1022,12 @@ function nextBad() {
 function rebuild(keep) {
   const old = view[idx] ? view[idx].i : 0;
   view = T.events.filter(e => !isHidden(e));
-  tlCache = null;
   $("slider").max = view.length - 1;
   $("events").innerHTML = view.map((e, k) => `<div data-k="${k}"${e.viol.some(v => v.lvl === "err") ? ' class="bad"' : ""}><span class="t mono">${e.tick ?? ""}</span><span class="who" style="color:${e.by != null ? color(e.by) : "inherit"}">${e.by != null ? tname(e.by) : ""}</span><span class="tx">${short(e)}</span></div>`).join("");
   $("events").querySelectorAll("div").forEach(d => d.onclick = () => { stop(); idx = +d.dataset.k; render(); });
   const f = view.findIndex(e => e.i >= old);
   idx = keep ? (f >= 0 ? f : view.length - 1) : Math.max(0, view.findIndex(e => !e.boot));
+  setTimeline();
   render();
 }
 function resultOf(T) {
@@ -924,23 +1039,26 @@ function load(name) {
   prepare(T);
   const [cls, txt] = resultOf(T);
   $("res").className = "res " + cls; $("res").textContent = txt + (T.truncated ? " · 앞부분만 기록" : "");
-  $("ck").textContent = T.result ? T.result.detail : "채점 결과 없음 (run.sh로 다시 수집하면 생김)";
+  $("ck").textContent = T.result ? T.result.detail : "채점 결과가 없어요. run.sh로 다시 수집하면 생겨요";
   $("tab-ck").classList.toggle("alert", !!(T.result && !T.result.pass));
   // Project 2는 채점 실행과 트레이스 실행이 따로임 (REPLAY=0). 테스트 출력 줄이 다르면 둘 다 보여줌
   const body = s => (s || "").split("\n").filter(l => /^\(|: exit\(/.test(l)).join("\n");
   const differ = T.trace_output && body(T.trace_output) !== body(T.output);
   $("out").textContent = (T.output || "") + (differ
-    ? "\n\n--- 트레이스 실행 출력 (채점용 실행과 따로 돌려서 다름. 위가 채점 기준, 화면의 이벤트는 아래 실행 것) ---\n" + T.trace_output : "");
+    ? "\n\n--- 트레이스 실행 출력 (채점용 실행과 따로 돌려서 달라요. 위가 채점 기준이고, 화면의 이벤트는 아래 실행 거예요) ---\n" + T.trace_output : "");
   if (differ) $("res").textContent += " · 트레이스 실행은 출력이 다름";
   // 채점은 통과했는데 트레이스 실행에서만 PANIC/시간 초과: gdb 훅으로 커널이 느려지면서 타이밍 문제가 드러난 것일 수 있음
   if (T.result && T.result.pass && ["panic", "timeout"].includes(T.status))
     (T.events.find(e => e.kind === T.status) || {}).viol?.push({ lvl: "warn",
-      msg: "채점 실행은 PASS인데 트레이스 실행에서만 이렇게 끝남. gdb 훅 때문에 커널이 느려져서 숨어 있던 타이밍 문제(인터럽트를 끄지 않은 공유 자료구조 접근 등)가 드러난 것일 수 있음. 같은 테스트를 여러 번 돌려 재현되는지 볼 것" });
+      msg: "채점 실행은 PASS인데 트레이스 실행에서만 이렇게 끝났어요. gdb 훅 때문에 커널이 느려져서 숨어 있던 타이밍 문제(인터럽트를 끄지 않은 공유 자료구조 접근 등)가 드러난 것일 수 있어요. 같은 테스트를 여러 번 돌려 재현되는지 확인해 주세요" });
   $("tab-stack").classList.toggle("alert", T.events.some(e => e.kind === "uentry" && e.viol.some(v => v.lvl === "err")));
   const nb = T.events.filter(e => e.viol.length).length;
-  $("nextbad").textContent = nb ? `⚠ 다음 이상 (${nb})` : "✓ 이상 없음";
+  $("nextbad").innerHTML = nb ? `<i class="ic i-alert"></i>다음 이상 (${nb})` : '<i class="ic i-check"></i>이상 없음';
   $("nextbad").disabled = !nb;
   renderFaults(); renderLeaks();
+  $("tab-vm").hidden = !T.vm; $("f-vmf-wrap").hidden = !T.vm;
+  $("tab-vm").classList.toggle("alert", !!T.vmbad);
+  if (!T.vm && !$("tp-vm").hidden) showTab("fault");
   try { localStorage.setItem("uv-test", name); } catch (e) {}
   rebuild(false);
 }
@@ -948,50 +1066,89 @@ function showTab(k) {
   document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === k));
   document.querySelectorAll(".tp").forEach(p => p.hidden = p.id !== "tp-" + k);
   try { localStorage.setItem("uv-tab", k); } catch (e) {}
+  if (k === "vm" && view[idx]) renderVm(view[idx]);
 }
 document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => showTab(b.dataset.t));
 new ResizeObserver(() => document.documentElement.style.setProperty("--hh", document.querySelector("header").offsetHeight + "px"))
   .observe(document.querySelector("header"));
-function stop() { clearInterval(timer); timer = null; $("play").textContent = "▶ 재생"; }
+function stop() { clearInterval(timer); timer = null; $("play").innerHTML = '<i class="ic i-play"></i>재생'; }
 function play() {
   if (timer) return stop();
-  $("play").textContent = "⏸ 정지";
+  $("play").innerHTML = '<i class="ic i-pause"></i>정지';
   timer = setInterval(() => { if (idx >= view.length - 1) return stop(); idx++; render(); }, +$("speed").value);
 }
 
 // run.sh 진행 상태 폴링 (viewer.html과 같은 progress.json)
+let rerunAt = 0;   // 다시 실행을 누른 시각 (아래 rerun)
 async function pollProgress() {
   let p;
   try { p = await (await fetch("progress.json", { cache: "no-store" })).json(); } catch (e) { return; }
   const el = $("prog");
+  $("rerun").disabled = !!p.running || Date.now() - rerunAt < 5000;
   if (p.running) {
     const pct = p.total ? Math.round(p.done / p.total * 100) : 0, sec = Math.round(Date.now() / 1000 - p.started);
-    const ic = r => r.result === "PASS" ? "✅" : r.result === "FAIL" ? "❌" : "❔";
+    const ic = r => `<i class="ic i-${r.result === "PASS" ? "check" : r.result === "FAIL" ? "x" : "help"}"></i>`;
     el.style.display = "block";
     el.innerHTML = `<b>트레이스 수집 중</b> ${p.done}/${p.total} (${pct}%) · 지금: <b>${esc(p.current)}</b> · 경과 ${sec}초
-      <div class="bar"><i style="width:${pct}%"></i></div>
-      <div class="done">${p.results.map(r => `<span>${ic(r)} ${esc(r.test)}${{ timeout: " ⏱", panic: " 💥", aborted: " ⛔", attach_failed: " 🔌연결 실패" }[r.status] || ""}</span>`).join("")}</div>`;
+      <div class="track"><i style="width:${pct}%"></i></div>
+      <div class="done">${p.results.map(r => `<span>${ic(r)}${esc(r.test)}${{ timeout: " · 시간 초과", panic: " · PANIC", aborted: " · 중단됨", attach_failed: " · 연결 실패" }[r.status] || ""}</span>`).join("")}</div>`;
   } else if (p.finished && String(p.finished) !== String(window.TRACES_STAMP)) {
     let last = null; try { last = sessionStorage.getItem("uv-reloaded"); } catch (e) {}
     if (last === String(p.finished)) { el.style.display = "none"; return; }
     try { sessionStorage.setItem("uv-reloaded", String(p.finished)); } catch (e) {}
-    el.style.display = "block"; el.innerHTML = "<b>수집 완료</b> — 새 결과로 새로고침함";
+    el.style.display = "block"; el.innerHTML = "<b>수집 완료</b> — 새 결과로 새로고침할게요";
     location.reload();
   } else el.style.display = "none";
 }
 setInterval(pollProgress, 1000); pollProgress();
 
+function toast(m) {
+  const t = $("toast"); t.textContent = m; t.classList.add("on");
+  clearTimeout(t.hideTimer); t.hideTimer = setTimeout(() => t.classList.remove("on"), 5000);
+}
+// 지금 고른 테스트를 서버(server.py)로 다시 추적함. 진행 상황과 끝난 뒤 새로고침은 위 pollProgress가 맡음
+// 빌드 실패처럼 progress.json을 쓰기 전에 run.sh가 끝나면 pollProgress가 알 수 없어서, 서버 상태로 끝을 확인함
+async function watchRun() {
+  for (;;) {
+    await new Promise(r => setTimeout(r, 2000));
+    let st; try { st = await (await fetch("/api/status", { cache: "no-store" })).json(); } catch (e) { return; }
+    if (st.running) continue;
+    if (st.exit && st.exit !== 130) {
+      rerunAt = 0; $("rerun").disabled = false;
+      toast("다시 실행하지 못했어요. 빌드 에러일 수 있어요. 런처(index.html)의 run.sh 출력에서 확인해 주세요");
+    }
+    return;
+  }
+}
+async function rerun() {
+  $("rerun").disabled = true; rerunAt = Date.now();
+  try {
+    const r = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json", "X-Thread-Viz": "1" },
+      body: JSON.stringify({ mode: VM_MODE ? "vm" : "userprog", tests: [T.name], mlfqs: false }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "HTTP " + r.status);
+    toast(`${T.name} 테스트를 다시 추적하고 있어요. 끝나면 새로고침해요`);
+    pollProgress(); watchRun();
+  } catch (e) {
+    rerunAt = 0; $("rerun").disabled = false;
+    toast(e instanceof TypeError ? "서버에 연결하지 못했어요. tools/thread-viz/run.sh로 연 페이지에서 다시 실행할 수 있어요" : `다시 실행하지 못했어요. ${e.message}`);
+  }
+}
+$("rerun").onclick = rerun;
+
 for (const n in TR) TR[n].name = n;
 const broken = Object.keys(TR).filter(n => !(TR[n].events || []).length);
 const names = Object.keys(TR).filter(n => !broken.includes(n));
 if (!names.length) {
+  $("rerun").hidden = true;
   document.querySelector("main").innerHTML = '<div class="panel">' + (broken.length
-    ? `트레이스 수집에 실패함 (${esc(broken.join(", "))}). tools/thread-viz/run.sh userprog를 다시 실행할 것.`
-    : "udata.js가 없음. Pintos 저장소 루트에서 tools/thread-viz/run.sh userprog (또는 run.sh args-single 처럼 테스트 이름)를 먼저 실행할 것.") + "</div>";
+    ? `트레이스를 수집하지 못했어요 (${esc(broken.join(", "))}). tools/thread-viz/run.sh ${VM_MODE ? "vm" : "userprog"}을 다시 실행해 주세요.`
+    : VM_MODE ? "vdata.js가 없어요. Pintos 저장소 루트에서 tools/thread-viz/run.sh vm (또는 run.sh vm args-single 처럼 테스트 이름)을 먼저 실행해 주세요."
+    : "udata.js가 없어요. Pintos 저장소 루트에서 tools/thread-viz/run.sh userprog (또는 run.sh args-single 처럼 테스트 이름)를 먼저 실행해 주세요.") + "</div>";
 } else {
   for (const n of names) { T = TR[n]; prepare(T); }   // 목록에 이상 개수를 붙이려고 전부 미리 검사
-  const icon = n => { const c = resultOf(TR[n])[0]; return c === "pass" ? "✅" : c === "fail" ? "❌" : "❔"; };
-  $("test").innerHTML = names.map(n => `<option value="${n}">${icon(n)} ${n}${TR[n].nbad ? ` — ⚠ ${TR[n].nbad}` : ""}</option>`).join("");
+  // option에는 아이콘을 못 넣어서 결과를 글자로 붙임
+  $("test").innerHTML = optgroups(names, n => `<option value="${n}">${n} · ${resultOf(TR[n])[1]}${TR[n].nbad ? ` · 이상 ${TR[n].nbad}` : ""}</option>`);
   const nPass = names.filter(n => TR[n].result && TR[n].result.pass).length, nBad = names.filter(n => TR[n].nbad).length;
   $("summary").textContent = `PASS ${nPass}/${names.length} · 이상 있는 테스트 ${nBad}개` + (broken.length ? ` · 수집 실패 ${broken.length}개(${broken.join(", ")})` : "");
   let saved = null; try { saved = localStorage.getItem("uv-test"); } catch (e) {}
@@ -1005,7 +1162,7 @@ if (!names.length) {
   $("src-panel").ontoggle = () => { try { localStorage.setItem("uv-src-open", $("src-panel").open ? "1" : "0"); } catch (e) {} };
   $("speed").onchange = () => { if (timer) { stop(); play(); } };
   $("slider").oninput = () => { stop(); idx = +$("slider").value; render(); };
-  $("f-boot").onchange = $("f-out").onchange = () => rebuild(true);
+  $("f-boot").onchange = $("f-out").onchange = $("f-vmf").onchange = () => rebuild(true);
   try { $("f-sched").checked = localStorage.getItem("uv-sched") !== "0"; } catch (e) {}
   $("f-sched").onchange = () => { try { localStorage.setItem("uv-sched", $("f-sched").checked ? "1" : "0"); } catch (e) {} render(); };
   document.addEventListener("keydown", e => {
@@ -1014,8 +1171,8 @@ if (!names.length) {
     else if (e.key === "ArrowLeft") { stop(); idx--; render(); e.preventDefault(); }
     else if (e.key === " ") { play(); e.preventDefault(); }
     else if (e.key === "n") nextBad();
+    else if (tl.key(e)) e.preventDefault();
   });
-  window.addEventListener("resize", () => { tlCache = null; render(); });
   // URL 해시로 바로 이동: uprog.html#fork-once/12
   const [hn, hi] = decodeURIComponent(location.hash.slice(1)).split("/");
   if (names.includes(hn)) $("test").value = hn;
@@ -1026,7 +1183,7 @@ if (!names.length) {
     if (i && Number.isFinite(+i) && +i !== idx) { stop(); idx = +i; render(); }
   });
   let tab = null; try { tab = localStorage.getItem("uv-tab"); } catch (e) {}
-  showTab(tab && $("tp-" + tab) ? tab : "stack");
+  showTab(tab && $("tp-" + tab) && !$("tab-" + tab)?.hidden ? tab : "stack");
   if (hi && Number.isFinite(+hi)) { idx = +hi; render(); }
 }
 </script>

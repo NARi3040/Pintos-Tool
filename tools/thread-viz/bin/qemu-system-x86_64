@@ -21,7 +21,7 @@ for a in "$@"; do
         args=("${args[@]:0:${#args[@]}-1}")   # 앞에 넣은 -drive 제거
         q="$RR_FILE.d$n.qcow2"
         if [ "$RR" = record ]; then qemu-img convert -O qcow2 "$f" "$q" || exit 1; fi
-        [ -f "$q" ] || { echo "qemu 래퍼: 기록된 디스크 $q 가 없음. 테스트를 다시 실행할 것" >&2; exit 1; }
+        [ -f "$q" ] || { echo "qemu 래퍼: 기록된 디스크 $q 가 없어요. 테스트를 다시 실행해 주세요" >&2; exit 1; }
         args+=(-drive "file=$q,format=qcow2,if=none,id=d$n"
                -drive "driver=blkreplay,if=none,image=d$n,id=r$n"
                -device "ide-hd,drive=r$n,bus=ide.$((n / 2)),unit=$((n % 2))")

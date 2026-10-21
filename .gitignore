@@ -3,6 +3,8 @@ tools/thread-viz/traces/
 tools/thread-viz/data.js
 tools/thread-viz/utraces/
 tools/thread-viz/udata.js
+tools/thread-viz/vtraces/
+tools/thread-viz/vdata.js
 tools/thread-viz/progress.json
 tools/thread-viz/bench.choice
 
@@ -16,3 +18,4 @@ tools/thread-viz/bench.choice
 *~
 *.swp
 .DS_Store
+DESIGN.md

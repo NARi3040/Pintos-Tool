@@ -1,0 +1,212 @@
+/* thread-viz 공통 스타일. 토스 디자인 시스템(TDS) 기준. 규칙은 DESIGN.md.
+   페이지별 스타일은 각 html의 <style>에 둠. 색은 여기 변수만 씀 */
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
+
+:root {
+  color-scheme: light;
+  --bg: #f2f4f6; --panel: #fff; --sunk: #f2f4f6;
+  --fg: #191f28; --sub: #4e5968; --muted: #6b7684; --line: #e5e8eb;
+  --weak: rgba(2, 32, 71, .05); --press: rgba(2, 32, 71, .1);
+  --accent: #3182f6; --accent-soft: #e8f3ff; --on-accent: #fff;
+  --ok: #03b26c; --ok-soft: #f0faf6; --err: #f04452; --err-soft: #ffeeee;
+  --warn: #e45600; --warn-soft: #fff3e0;
+  /* 스레드 상태·종류 색. 밝은/어두운 배경 둘 다에서 보이는 중간 명도 */
+  --run: #03b26c; --ready: #3182f6; --blocked: #8b95a1; --sleep: #f18600; --dying: #f04452;
+  --proc: #a234c7; --file: #0c9c9c;
+  --hl: #fff7d6;          /* 이번 이벤트로 바뀐 것 */
+  --toast: rgba(51, 61, 75, .96);
+  --shadow: 0 8px 24px rgba(0, 27, 55, .1);
+  --r: 16px;
+  --font: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, "Noto Sans KR", sans-serif;
+  --mono: ui-monospace, "JetBrains Mono", "D2Coding", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #17171c; --panel: #212127; --sunk: #2c2c35;
+    --fg: #e4e4e5; --sub: #c3c3c6; --muted: #9e9ea4; --line: #2c2c35;
+    --weak: rgba(217, 217, 255, .11); --press: rgba(222, 222, 255, .19);
+    --accent: #4593fc; --accent-soft: rgba(69, 147, 252, .16); --on-accent: #fff;
+    --ok: #1cc47f; --ok-soft: rgba(28, 196, 127, .14); --err: #fa616d; --err-soft: rgba(250, 97, 109, .14);
+    --warn: #ffa733; --warn-soft: rgba(255, 167, 51, .14);
+    --run: #1cc47f; --ready: #4593fc; --blocked: #7e7e87; --sleep: #ffa733; --dying: #fa616d;
+    --proc: #c770e4; --file: #2cc5c5;
+    --hl: rgba(255, 210, 60, .16);
+    --toast: rgba(60, 60, 71, .97);
+    --shadow: 0 8px 24px rgba(0, 0, 0, .4);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #17171c; --panel: #212127; --sunk: #2c2c35;
+  --fg: #e4e4e5; --sub: #c3c3c6; --muted: #9e9ea4; --line: #2c2c35;
+  --weak: rgba(217, 217, 255, .11); --press: rgba(222, 222, 255, .19);
+  --accent: #4593fc; --accent-soft: rgba(69, 147, 252, .16); --on-accent: #fff;
+  --ok: #1cc47f; --ok-soft: rgba(28, 196, 127, .14); --err: #fa616d; --err-soft: rgba(250, 97, 109, .14);
+  --warn: #ffa733; --warn-soft: rgba(255, 167, 51, .14);
+  --run: #1cc47f; --ready: #4593fc; --blocked: #7e7e87; --sleep: #ffa733; --dying: #fa616d;
+  --proc: #c770e4; --file: #2cc5c5;
+  --hl: rgba(255, 210, 60, .16);
+  --toast: rgba(60, 60, 71, .97);
+  --shadow: 0 8px 24px rgba(0, 0, 0, .4);
+}
+
+* { box-sizing: border-box; }
+/* button·label.chk 의 display 규칙이 hidden 속성을 이기지 않게 */
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
+code, .mono { font-family: var(--mono); font-size: 12px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1, h2, h3 { letter-spacing: -.02em; }
+
+/* 버튼: 기본은 회색 weak, 영역마다 하나만 .primary */
+button, a.btn { font: 600 14px/1.4 var(--font); color: var(--sub); background: var(--weak); border: 0; border-radius: 10px;
+  padding: 8px 14px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  text-decoration: none; position: relative; transition: background .15s, transform .1s, color .15s; white-space: nowrap; }
+button:hover, a.btn:hover { background: var(--press); text-decoration: none; }
+button:active, a.btn:active { transform: scale(.96); }
+button.primary, a.btn.primary { background: var(--accent); color: var(--on-accent); }
+button.primary:hover, a.btn.primary:hover { background: var(--accent); box-shadow: inset 0 0 0 99px rgba(0, 0, 0, .08); }
+button.soft, a.btn.soft { background: var(--accent-soft); color: var(--accent); }
+button.soft:hover, a.btn.soft:hover { box-shadow: inset 0 0 0 99px var(--weak); }
+button.danger { background: var(--err-soft); color: var(--err); }
+button.ghost { background: none; color: var(--muted); }
+button.ghost:hover { background: var(--weak); }
+button.icon { padding: 8px; }
+button:disabled { opacity: .4; cursor: default; transform: none; }
+button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 입력: 회색으로 채운 필드, 포커스 때 흰 배경·파란 테두리 */
+input[type=text], input:not([type]), select { font: 400 14px/1.4 var(--font); color: var(--fg); background: var(--sunk);
+  border: 1px solid transparent; border-radius: 12px; padding: 8px 12px; transition: background .15s, border-color .15s, box-shadow .15s; }
+input[type=text]:focus, input:not([type]):focus, select:focus { background: var(--panel); border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft); outline: 0; }
+select { cursor: pointer; padding-right: 32px; appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b95a1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; background-size: 16px; }
+@media (max-width: 800px) { input[type=text], input:not([type]), select { font-size: 16px; } }
+input[type=range] { accent-color: var(--accent); }
+input[type=checkbox] { appearance: none; width: 20px; height: 20px; margin: 0; flex: none; border-radius: 50%; cursor: pointer;
+  background: var(--sunk); box-shadow: inset 0 0 0 1.5px var(--blocked); transition: background .15s, box-shadow .15s; }
+input[type=checkbox]:checked { background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 12.5l4 4 8-9'/%3E%3C/svg%3E") center / 14px no-repeat; box-shadow: none; }
+/* 스위치: 선택이 아니라 켜고 끄는 것 */
+input.tg[type=checkbox] { width: 40px; height: 24px; border-radius: 12px; background: var(--press); box-shadow: none; position: relative; }
+input.tg[type=checkbox]::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .2); transition: transform .15s; }
+input.tg[type=checkbox]:checked { background: var(--accent); }
+input.tg[type=checkbox]:checked::after { transform: translateX(16px); }
+label.chk { color: var(--sub); font: 500 14px/1.4 var(--font); display: inline-flex; gap: 8px; align-items: center; cursor: pointer; }
+
+/* 표면: 선 대신 배경색 차이·둥근 모서리·간격으로 나눔 */
+.panel { background: var(--panel); border-radius: var(--r); padding: 20px 24px; margin-bottom: 12px; min-width: 0; }
+.panel h2 { font-size: 17px; font-weight: 700; color: var(--fg); margin: 0 0 12px; }
+.note { font-size: 12px; color: var(--muted); }
+.grow { flex: 1; }
+details > summary { cursor: pointer; color: var(--sub); font-size: 14px; font-weight: 500; list-style: none; display: inline-flex; align-items: center; gap: 4px; }
+details > summary::-webkit-details-marker { display: none; }
+details > summary::before { content: ""; width: 16px; height: 16px; background: currentColor; transition: transform .15s;
+  -webkit-mask: var(--i-right) center / contain no-repeat; mask: var(--i-right) center / contain no-repeat; }
+details[open] > summary::before { transform: rotate(90deg); }
+pre { font-family: var(--mono); font-size: 12px; background: var(--sunk); border-radius: 12px; padding: 12px; }
+
+/* 탭: 고른 것만 진하게 + 밑줄 2px */
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: -8px 0 12px; }
+.tabs button { background: none; border-radius: 0; color: var(--muted); padding: 10px 8px; font-size: 15px; font-weight: 500;
+  box-shadow: inset 0 -2px 0 transparent; }
+.tabs button:hover { background: none; color: var(--sub); }
+.tabs button:active { transform: none; }
+.tabs button.on { color: var(--fg); font-weight: 700; box-shadow: inset 0 -2px 0 var(--fg); }
+.tabs button.alert::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--err); margin-left: 2px; align-self: flex-start; }
+
+/* 결과 배지 */
+.res { font: 600 13px/1 var(--font); padding: 6px 10px; border-radius: 8px; display: inline-flex; align-items: center; gap: 4px; }
+.res:empty { display: none; }
+.res.pass { background: var(--ok-soft); color: var(--ok); }
+.res.fail { background: var(--err-soft); color: var(--err); }
+.res.none { background: var(--weak); color: var(--muted); }
+
+/* 진행 막대 */
+.track { height: 6px; background: var(--sunk); border-radius: 3px; overflow: hidden; }
+.track i { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width .4s; }
+
+/* 토스트 */
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 8px); background: var(--toast); color: #fff;
+  font: 500 14px/1.4 var(--font); padding: 12px 20px; border-radius: 16px; box-shadow: var(--shadow); opacity: 0;
+  pointer-events: none; transition: opacity .2s, transform .2s; z-index: 10; max-width: calc(100vw - 32px); }
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+/* 아이콘: <i class="ic i-play"></i>. currentColor로 칠함. 24x24, 선 두께 2, 둥근 끝 */
+.ic { display: inline-block; width: 1.15em; height: 1.15em; flex: none; vertical-align: -.2em; background: currentColor;
+  -webkit-mask: var(--i) center / contain no-repeat; mask: var(--i) center / contain no-repeat; font-style: normal; }
+:root {
+  --i-play: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5z'/%3E%3C/svg%3E");
+  --i-pause: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='6' y='4' width='4' height='16' rx='1'/%3E%3Crect x='14' y='4' width='4' height='16' rx='1'/%3E%3C/svg%3E");
+  --i-stop: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='5' y='5' width='14' height='14' rx='2'/%3E%3C/svg%3E");
+  --i-left: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m15 18-6-6 6-6'/%3E%3C/svg%3E");
+  --i-right: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
+  --i-back: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M19 12H5m7 7-7-7 7-7'/%3E%3C/svg%3E");
+  --i-rewind: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a9 9 0 1 0 3-6.7L3 8m0-5v5h5'/%3E%3C/svg%3E");
+  --i-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+  --i-x: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 6 6 18M6 6l12 12'/%3E%3C/svg%3E");
+  --i-alert: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7.5v5.5m0 3.5v.01'/%3E%3C/svg%3E");
+  --i-info: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 11v5.5m0-9v.01'/%3E%3C/svg%3E");
+  --i-help: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.4m0 3v.01'/%3E%3C/svg%3E");
+  --i-dot: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='5'/%3E%3C/svg%3E");
+  --i-bug: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='7' y='7' width='10' height='13' rx='5'/%3E%3Cpath d='M9 7.5V6a3 3 0 0 1 6 0v1.5M3 13h4m10 0h4M4 7l3 2m13-2-3 2M4 19l3-2m13 2-3-2M12 11v9'/%3E%3C/svg%3E");
+  --i-terminal: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='16' rx='3'/%3E%3Cpath d='m7 9 3 3-3 3m5 0h5'/%3E%3C/svg%3E");
+  --i-link: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 4h6v6m0-6-9 9M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4'/%3E%3C/svg%3E");
+  --i-power: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0'/%3E%3C/svg%3E");
+  --i-plus: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14M5 12h14'/%3E%3C/svg%3E");
+  --i-minus: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3C/svg%3E");
+  --i-refresh: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7'/%3E%3C/svg%3E");
+}
+.i-play { --i: var(--i-play); } .i-pause { --i: var(--i-pause); } .i-stop { --i: var(--i-stop); }
+.i-left { --i: var(--i-left); } .i-right { --i: var(--i-right); } .i-back { --i: var(--i-back); } .i-rewind { --i: var(--i-rewind); }
+.i-check { --i: var(--i-check); } .i-x { --i: var(--i-x); } .i-alert { --i: var(--i-alert); } .i-info { --i: var(--i-info); }
+.i-help { --i: var(--i-help); } .i-dot { --i: var(--i-dot); } .i-bug { --i: var(--i-bug); } .i-terminal { --i: var(--i-terminal); }
+.i-link { --i: var(--i-link); } .i-power { --i: var(--i-power); }
+.i-plus { --i: var(--i-plus); } .i-minus { --i: var(--i-minus); } .i-refresh { --i: var(--i-refresh); }
+
+/* 이벤트 타임라인 (tl.js): 이름 칸은 고정, 오른쪽 트랙만 가로 스크롤. 캔버스는 보이는 폭만큼만 */
+.tl-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.tl-head h2 { margin: 0; }
+.tl-ctl { display: flex; gap: 4px; align-items: center; }
+.tl-zoom { min-width: 48px; text-align: center; color: var(--muted); }
+.tl { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: start; }
+.tl-lab { font-size: 12px; color: var(--sub); min-width: 0; }
+.tl-lab > div { height: 22px; line-height: 22px; padding-right: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-lab > div + div { box-shadow: inset 0 1px 0 var(--line); }
+.tl-lab small { color: var(--muted); }
+.tl-lab .tl-band { line-height: 1.5; padding-top: 10px; white-space: normal; }
+.tl-sc { overflow-x: auto; overflow-y: hidden; }
+.tl-sp { position: relative; cursor: grab; user-select: none; }
+.tl-sp.pan { cursor: grabbing; }
+.tl-sp.near, .tl-sp.scrub { cursor: ew-resize; }
+.tl-sp canvas { position: sticky; left: 0; display: block; }
+.tl-cur { position: absolute; top: 0; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--fg); pointer-events: none; }
+/* 현재 위치 손잡이: 끌어서 넘겨 봄 */
+.tl-knob { position: absolute; top: -9px; left: -5px; width: 12px; height: 12px; border-radius: 50%; background: var(--fg);
+  box-shadow: 0 0 0 2px var(--panel); pointer-events: auto; cursor: ew-resize; touch-action: none; transition: transform .1s; }
+.tl-knob:hover, .tl-sp.scrub .tl-knob { transform: scale(1.25); }
+.tl-sc, .tl-lab { padding-top: 10px; }   /* 손잡이 자리. 두 칸을 같이 내려 줄을 맞춤 */
+.tl-tip { position: fixed; z-index: 5; pointer-events: none; background: var(--panel); color: var(--fg); box-shadow: var(--shadow);
+  border-radius: 12px; padding: 8px 12px; font-size: 12px; line-height: 1.5; max-width: min(360px, calc(100vw - 16px)); }
+.tl-tip .t { color: var(--muted); }
+/* 범례: 작은 점 칩 */
+.legend { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--sub); margin-top: 12px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; background: var(--sunk); border-radius: 8px; padding: 2px 8px; }
+.legend i { width: 8px; height: 8px; border-radius: 50%; flex: none; color: var(--c); background: var(--c); }
+/* 타임라인과 같은 모양의 범례 표시 */
+.legend i.lg-bar { width: 14px; height: 8px; border-radius: 3px; }
+.legend i.lg-tick { width: 3px; height: 10px; border-radius: 1px; }
+.legend i.lg-link { width: 2px; height: 6px; border-radius: 0; margin-bottom: 4px; position: relative; }
+.legend i.lg-link::after { content: ""; position: absolute; left: -3px; top: 6px; border: 4px solid transparent; border-top: 4px solid var(--c); border-bottom: 0; }
+.legend i.lg-bad { width: 0; height: 0; border-radius: 0; background: none; border: 4px solid transparent; border-top: 5px solid var(--c); border-bottom: 0; }
+
+/* 뷰어 공통 머리: 흰 표면, 아래로 스크롤해도 붙어 있음 */
+header.top { padding: 12px 24px; display: flex; flex-direction: column; gap: 10px; background: var(--panel);
+  position: sticky; top: 0; z-index: 2; box-shadow: 0 1px 0 var(--line); }
+header.top .hrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+header.top h1 { font-size: 20px; font-weight: 700; margin: 0 8px 0 0; }
+@media (max-width: 800px) { header.top { padding: 12px 16px; } .panel { padding: 16px; } }

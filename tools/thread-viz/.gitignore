@@ -2,5 +2,7 @@ data.js
 traces/
 udata.js
 utraces/
+vdata.js
+vtraces/
 progress.json
 bench.choice

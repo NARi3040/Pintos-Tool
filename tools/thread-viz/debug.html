@@ -4,97 +4,83 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pintos Debugger</title>
+<link rel="stylesheet" href="ui.css">
 <style>
-:root {
-  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #6b7385; --line: #dde1e8;
-  --hl: #fff3c4; --accent: #3b6fd8; --warn: #b07a1f; --err: #c94a4a; --ok: #2f9e5b;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #14171d; --panel: #1c2028; --text: #e3e6ec; --muted: #8b93a5; --line: #2c323d;
-    --hl: #4a4220; --accent: #5b8cf0; --warn: #d29a3a; --err: #e06666; --ok: #3fbf72;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #14171d; --panel: #1c2028; --text: #e3e6ec; --muted: #8b93a5; --line: #2c323d;
-  --hl: #4a4220; --accent: #5b8cf0; --warn: #d29a3a; --err: #e06666; --ok: #3fbf72;
-}
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, "Noto Sans KR", sans-serif; }
-code, .mono { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 12.5px; }
-header { padding: 8px 16px; display: flex; flex-direction: column; gap: 6px; background: var(--panel);
-  border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; }
-.hrow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.grow { flex: 1; }
-header h1 { font-size: 15px; margin: 0 6px 0 0; }
-a { color: var(--accent); }
-button, input { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; }
-button { cursor: pointer; }
-button:hover { border-color: var(--accent); }
-button:disabled { opacity: .5; cursor: default; border-color: var(--line); }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-button.rev { border-style: dashed; }
-kbd { font-size: 11px; color: var(--muted); }
-#status { color: var(--muted); overflow-wrap: anywhere; }
-#status b { color: var(--text); }
-main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 12px; padding: 12px 16px; align-items: start; }
+kbd { font: 500 12px/1 var(--mono); color: var(--muted); background: var(--weak); border-radius: 8px; padding: 3px 6px; }
+button.primary kbd { color: inherit; background: rgba(255, 255, 255, .2); }
+/* 거꾸로 실행 버튼은 한 묶음(세그먼트)으로 */
+.revs { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px; background: var(--sunk); border-radius: 12px; padding: 3px; }
+.revs .note { padding: 0 8px; }
+.revs button.rev { background: none; }
+.revs button.rev:hover { background: var(--press); }
+#status { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+#status b { color: var(--fg); }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 12px; padding: 12px 24px; align-items: start; }
 @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 12px; min-width: 0; }
-.panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 8px; }
-.note { color: var(--muted); font-size: 12.5px; }
+.panel > .note:not(:empty) { margin-top: 8px; }
 .err { color: var(--err); }
 #msg:empty { display: none; }
-#msg { border: 1px solid var(--err); color: var(--err); border-radius: 6px; padding: 6px 10px; margin: 8px 16px 0; overflow-wrap: anywhere; }
-#msg.info { border-color: var(--accent); color: var(--text); }
+#msg { background: var(--err-soft); color: var(--err); font-size: 14px; border-radius: 12px; padding: 12px 16px; margin: 12px 24px 0; overflow-wrap: anywhere; }
+#msg.info { background: var(--accent-soft); color: var(--fg); }
+#msg button { margin-left: 8px; }
+@media (max-width: 800px) { main { padding: 12px 16px; } #msg { margin: 12px 16px 0; } }
 #src, #events { position: relative; }
-#src { margin: 0; overflow: auto; max-height: calc(100vh - 220px); background: var(--bg); border-radius: 6px; padding: 6px 0; }
-#src div { padding: 0 10px 0 0; white-space: pre; }
+#src { margin: 0; overflow: auto; max-height: calc(100vh - 220px); padding: 8px 0; }
+#src div { padding: 0 12px 0 0; white-space: pre; }
 #src div.on { background: var(--hl); }
-#src div.sel { outline: 1px dashed var(--accent); }
 #src .ln { display: inline-block; width: 58px; color: var(--muted); text-align: right; margin-right: 12px; user-select: none; cursor: pointer; padding-right: 4px; }
 #src .ln:hover { color: var(--err); }
-#src .bp .ln::before { content: "● "; color: var(--err); }
-#srcpath { color: var(--muted); margin-bottom: 6px; overflow-wrap: anywhere; }
+#src .bp .ln::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--err); margin-right: 6px; vertical-align: 1px; }
+#srcpath { color: var(--muted); margin-bottom: 8px; overflow-wrap: anywhere; }
 .list { margin: 0; padding: 0; list-style: none; }
-.list li { padding: 2px 4px; border-radius: 4px; overflow-wrap: anywhere; }
-.list li.click { cursor: pointer; }
-.list li.click:hover { background: var(--bg); }
-.list li.cur { background: var(--hl); }
+.list li { padding: 6px 8px; border-radius: 8px; overflow-wrap: anywhere; }
+.list li.click { cursor: pointer; transition: background .15s; }
+.list li.click:hover { background: var(--sunk); }
+.list li.cur { background: var(--accent-soft); }
+.list .bpd { color: var(--err); width: 12px; }
 #events { max-height: 300px; overflow: auto; }
 #events li .k { color: var(--muted); }
-.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 10px; }
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; }
+.kv > span:nth-child(odd) { color: var(--muted); }
 .kv .v { overflow-wrap: anywhere; }
+.kv .v.err { color: var(--err); }
+#watch [data-w] { cursor: pointer; }
+#watch:not(:empty) { margin-top: 8px; }
 #console { white-space: pre-wrap; max-height: 260px; overflow: auto; margin: 0; }
-.row { display: flex; gap: 6px; margin-top: 6px; }
+.row { display: flex; gap: 8px; margin-top: 12px; }
 .row input { flex: 1; min-width: 0; }
 .busy { opacity: .6; pointer-events: none; }
 #ext:empty { display: none; }
-pre.cmd { background: var(--bg); padding: 6px 8px; border-radius: 6px; overflow-x: auto; margin: 4px 0; }
+#ext div { font-size: 14px; color: var(--sub); }
+pre.cmd { overflow-x: auto; margin: 8px 0 12px; }
+label.chk { margin-bottom: 8px; }
 </style>
 </head>
 <body>
-<header>
+<header class="top">
   <div class="hrow">
     <h1>Pintos 디버거</h1>
     <span id="title" class="mono"></span>
     <span class="grow"></span>
-    <a id="back" href="#">뷰어로</a>
-    <button id="b-ext" title="QEMU를 이 시점에 멈춘 채로 두고, 터미널 gdb나 VS Code가 붙게 함">외부 gdb로 열기</button>
-    <button id="b-stop">디버거 끄기</button>
+    <a id="back" class="btn" href="#"><i class="ic i-back"></i>뷰어로</a>
+    <button id="b-ext" title="QEMU를 이 시점에 멈춘 채로 두고, 터미널 gdb나 VS Code가 붙을 수 있게 해요"><i class="ic i-terminal"></i>외부 gdb로 열기</button>
+    <button id="b-stop" class="danger"><i class="ic i-power"></i>디버거 끄기</button>
   </div>
   <div class="hrow" id="ctl">
-    <button class="primary" data-s="continue" title="c">▶ 계속 <kbd>c</kbd></button>
-    <button data-s="interrupt" title="실행 중일 때 멈춤">■ 멈춤</button>
+    <button class="primary" data-s="continue" title="c"><i class="ic i-play"></i>계속 <kbd>c</kbd></button>
+    <button data-s="interrupt" title="실행 중일 때 멈춰요"><i class="ic i-stop"></i>멈춤</button>
     <button data-s="next" title="n">다음 줄 <kbd>n</kbd></button>
     <button data-s="step" title="s">들어가기 <kbd>s</kbd></button>
     <button data-s="finish" title="f">나오기 <kbd>f</kbd></button>
     <button data-s="stepi" title="i">명령어 하나 <kbd>i</kbd></button>
-    <span class="note">거꾸로:</span>
-    <button class="rev" data-s="continue" data-r="1" title="Shift+c">◀ 계속 <kbd>C</kbd></button>
-    <button class="rev" data-s="next" data-r="1" title="Shift+n">◀ 이전 줄 <kbd>N</kbd></button>
-    <button class="rev" data-s="step" data-r="1" title="Shift+s">◀ 들어가기 <kbd>S</kbd></button>
-    <button class="rev" data-s="finish" data-r="1" title="Shift+f">◀ 호출한 곳 <kbd>F</kbd></button>
-    <button class="rev" data-s="stepi" data-r="1" title="Shift+i">◀ 명령어 하나 <kbd>I</kbd></button>
+    <span class="revs">
+      <span class="note">거꾸로</span>
+      <button class="rev" data-s="continue" data-r="1" title="Shift+c"><i class="ic i-rewind"></i>계속 <kbd>C</kbd></button>
+      <button class="rev" data-s="next" data-r="1" title="Shift+n"><i class="ic i-left"></i>이전 줄 <kbd>N</kbd></button>
+      <button class="rev" data-s="step" data-r="1" title="Shift+s"><i class="ic i-left"></i>들어가기 <kbd>S</kbd></button>
+      <button class="rev" data-s="finish" data-r="1" title="Shift+f"><i class="ic i-left"></i>호출한 곳 <kbd>F</kbd></button>
+      <button class="rev" data-s="stepi" data-r="1" title="Shift+i"><i class="ic i-left"></i>명령어 하나 <kbd>I</kbd></button>
+    </span>
   </div>
   <div id="status">연결 중…</div>
 </header>
@@ -104,13 +90,13 @@ pre.cmd { background: var(--bg); padding: 6px 8px; border-radius: 6px; overflow-
     <div class="panel">
       <div id="srcpath" class="mono"></div>
       <pre id="src" class="mono"></pre>
-      <div class="note">줄 번호를 누르면 breakpoint를 걸고 풂.</div>
+      <div class="note">줄 번호를 누르면 breakpoint를 걸거나 풀어요.</div>
     </div>
     <div class="panel" id="ext"></div>
     <div class="panel">
       <h2>QEMU 출력</h2>
       <pre id="console" class="mono"></pre>
-      <div class="note">재생하면서 나온 출력 전부임. 거꾸로 가도 지워지지 않음.</div>
+      <div class="note">재생하면서 나온 출력이 모두 남아 있어요. 거꾸로 가도 지워지지 않아요.</div>
     </div>
   </div>
   <div>
@@ -122,20 +108,20 @@ pre.cmd { background: var(--bg); padding: 6px 8px; border-radius: 6px; overflow-
     <div class="panel">
       <h2>변수</h2>
       <div class="kv mono" id="vars"></div>
-      <div class="row"><input id="expr" class="mono" placeholder="식 보기 (예: *t, t->name, list_size (&ready_list)는 안 됨)"><button id="b-eval">보기</button></div>
-      <div class="kv mono" id="watch" style="margin-top:6px"></div>
-      <div class="note">재생 중이라 값을 바꾸거나 함수를 부를 수 없음. 식을 누르면 목록에서 빠짐.</div>
+      <div class="row"><input id="expr" class="mono" placeholder="식 보기 (예: *t, t->name. list_size (&ready_list) 같은 호출은 안 돼요)"><button id="b-eval" class="soft">보기</button></div>
+      <div class="kv mono" id="watch"></div>
+      <div class="note">재생 중이라 값을 바꾸거나 함수를 부를 수 없어요. 식을 누르면 목록에서 빠져요.</div>
     </div>
     <div class="panel">
       <h2>breakpoint</h2>
       <ul class="list mono" id="bps"></ul>
-      <div class="row"><input id="bploc" class="mono" placeholder="함수 이름이나 파일:줄 (예: process_wait, syscall.c:120)"><button id="b-bp">걸기</button></div>
+      <div class="row"><input id="bploc" class="mono" placeholder="함수 이름이나 파일:줄 (예: process_wait, syscall.c:120)"><button id="b-bp" class="soft">걸기</button></div>
     </div>
     <div class="panel">
       <h2>이벤트로 이동</h2>
-      <label class="note"><input type="checkbox" id="f-sys" checked> 커널 내부(콘솔 락 등) 숨김</label>
+      <label class="chk"><input type="checkbox" class="tg" id="f-sys" checked> 커널 내부(콘솔 락 등) 숨김</label>
       <ul class="list mono" id="events"></ul>
-      <div class="note">트레이스의 이벤트를 누르면 그 시점으로 감. 뒤로 갈 때는 가까운 스냅샷부터 다시 재생함.</div>
+      <div class="note">트레이스의 이벤트를 누르면 그 시점으로 가요. 뒤로 갈 때는 가까운 스냅샷부터 다시 재생해요.</div>
     </div>
     <div class="panel">
       <h2>레지스터</h2>
@@ -147,18 +133,18 @@ pre.cmd { background: var(--bg); padding: 6px 8px; border-radius: 6px; overflow-
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const P = new URLSearchParams(location.search);
-const MODE = P.get("mode") === "userprog" ? "userprog" : "threads", TEST = P.get("test") || "";
-const VIEW = MODE === "userprog" ? "uprog.html" : "viewer.html";
+const MODE = ["userprog", "vm"].includes(P.get("mode")) ? P.get("mode") : "threads", TEST = P.get("test") || "";
+const VIEW = { threads: "viewer.html", userprog: "uprog.html", vm: "uprog.html?vm" }[MODE];
 let T = null, S = null, frame = 0, srcFile = null, srcCache = {}, watches = [], busy = false;
 try { watches = JSON.parse(localStorage.getItem("tvz-watch") || "[]"); } catch (e) {}
 
-$("title").textContent = `${MODE === "userprog" ? "Project 2" : "Project 1"} · ${TEST}`;
+$("title").textContent = `${{ threads: "Project 1", userprog: "Project 2", vm: "Project 3" }[MODE]} · ${TEST}`;
 $("back").href = `${VIEW}#${encodeURIComponent(TEST)}`;
 
 async function api(path, body) {
   const r = await fetch("/api/debug/" + path, body === undefined ? {} :
     { method: "POST", headers: { "Content-Type": "application/json", "X-Thread-Viz": "1" }, body: JSON.stringify(body) });
-  const j = await r.json().catch(() => ({ error: r.status === 404 ? "뷰어 서버가 예전 버전임. tools/thread-viz/run.sh를 한 번 다시 실행하면 새 서버로 바뀜" : "서버 응답 오류" }));
+  const j = await r.json().catch(() => ({ error: r.status === 404 ? "뷰어 서버가 예전 버전이에요. tools/thread-viz/run.sh를 한 번 다시 실행하면 새 서버로 바뀌어요" : "서버 응답을 읽지 못했어요" }));
   if (!r.ok) throw new Error(j.error || r.statusText);
   return j;
 }
@@ -173,7 +159,7 @@ function setBusy(b, why) {
 // ---- 트레이스 (이벤트 목록과 icount) ----
 async function loadTrace() {
   try {
-    const r = await fetch(`${MODE === "userprog" ? "utraces" : "traces"}/${encodeURIComponent(TEST)}.json`, { cache: "no-store" });
+    const r = await fetch(`${{ threads: "traces", userprog: "utraces", vm: "vtraces" }[MODE]}/${encodeURIComponent(TEST)}.json`, { cache: "no-store" });
     T = r.ok ? await r.json() : null;
   } catch (e) { T = null; }
 }
@@ -189,7 +175,7 @@ function evAt(ic) {   // icount 시점 직전(같거나 이전)의 마지막 이
   return k;
 }
 function renderEvents() {
-  if (!T) { $("events").innerHTML = `<li class="note">트레이스 없음</li>`; return; }
+  if (!T) { $("events").innerHTML = `<li class="note">트레이스가 없어요</li>`; return; }
   const cur = S ? evAt(S.icount) : -1, hide = $("f-sys").checked;
   $("events").innerHTML = T.events.map((e, i) => (e.ic == null || (hide && (e.sys || e.boot)) || (hide && e.kind === "out" && e.by == null)) ? "" :
     `<li class="click${i === cur ? " cur" : ""}" data-i="${i}"><span class="k">#${i}</span> ${esc(tname(e.by))} ${esc(evText(e))}</li>`).join("");
@@ -202,29 +188,29 @@ function renderEvents() {
 async function refresh() {
   try { S = await api("state?frame=" + frame); }
   catch (e) { msg(e.message); return; }
-  if (!S.session) { $("status").textContent = "디버거 세션이 없음"; return; }
-  if (S.ended) { setBusy(false); $("status").innerHTML = "<b>QEMU가 끝났음</b> — 디버거를 다시 시작할 것"; return; }
+  if (!S.session) { $("status").textContent = "디버거 세션이 없어요"; return; }
+  if (S.ended) { setBusy(false); $("status").innerHTML = "<b>QEMU가 끝났어요</b> · 디버거를 다시 시작해 주세요"; return; }
   $("console").textContent = S.console || "";
   $("console").scrollTop = 1e9;
   if (S.external) return renderExternal(S.port);
-  if (S.running) { $("status").innerHTML = "<b>실행 중…</b> (■ 멈춤으로 세울 수 있음)"; setTimeout(refresh, 500); return; }
+  if (S.running) { $("status").innerHTML = "<b>실행 중…</b> 멈춤 버튼으로 세울 수 있어요"; setTimeout(refresh, 500); return; }
   setBusy(false);
   const f = (S.frames || [])[S.frame] || {};
   const k = evAt(S.icount);
   const why = { "breakpoint-hit": "breakpoint", "end-stepping-range": "한 단계 끝", "function-finished": "함수에서 나옴",
-    "power_off": "테스트 끝 (power_off). 거꾸로 가거나 이벤트를 눌러 이동할 수 있음", "goto": "이벤트 시점으로 이동함", start: "처음 (부팅 전)",
-    "no-history": "기록의 처음 (그 전에 걸린 breakpoint 없음)", "signal-received": "멈춤",
+    "power_off": "테스트가 끝났어요 (power_off). 거꾸로 가거나 이벤트를 눌러 이동할 수 있어요", "goto": "이벤트 시점으로 이동했어요", start: "처음 (부팅 전)",
+    "no-history": "기록의 처음이에요. 그 전에 걸린 breakpoint가 없어요", "signal-received": "멈춤",
     "reverse-next": "이전 줄", "reverse-step": "바로 전에 실행한 줄", "reverse-finish": "이 함수를 부른 곳", "reverse-stepi": "명령어 하나 전",
-    "reverse-continue": "거꾸로 가다 breakpoint" }[S.reason] || S.reason;
+    "reverse-continue": "거꾸로 가다 만난 breakpoint" }[S.reason] || S.reason;
   $("status").innerHTML = `<b>${esc(why)}</b> · ${f.file ? `${esc(f.func)} <span class="mono">${esc(f.file)}:${f.line}</span>` : `<span class="mono">${esc(S.regs && S.regs.rip)}</span>`}` +
     ` · 실행한 명령어 ${S.icount != null ? S.icount.toLocaleString() : "?"}개` + (k >= 0 ? ` · 이벤트 #${k} 직후` : "") +
     (S.thread ? ` · 스레드 <b>${esc(String(S.thread.name).replace(/\\000.*|", '.*|"/g, ""))}</b> (tid ${esc(S.thread.tid)})` : S.user ? " · <b>유저 모드</b>" : "");
   $("frames").innerHTML = (S.frames || []).map(x => `<li class="click${x.level === S.frame ? " cur" : ""}" data-l="${x.level}">#${x.level} ${esc(x.func)}${x.file ? ` <span class="note">${esc(x.file)}:${x.line}</span>` : ""}</li>`).join("");
   $("frames").querySelectorAll("li").forEach(li => li.onclick = () => { frame = +li.dataset.l; refresh(); });
-  $("thread").textContent = S.user ? "유저 프로그램 코드는 테스트 본 프로그램의 심볼만 읽음 (exec한 다른 프로그램은 ?? 로 보일 수 있음)" : "";
+  $("thread").textContent = S.user ? "유저 프로그램 코드는 테스트 본 프로그램의 심볼만 읽어요. exec한 다른 프로그램은 ??로 보일 수 있어요" : "";
   $("vars").innerHTML = (S.vars || []).map(v => `<span>${esc(v.name)}</span><span class="v">${esc(v.value ?? "(" + v.type + ")")}</span>`).join("") || `<span class="note">없음</span><span></span>`;
   $("regs").innerHTML = Object.entries(S.regs || {}).map(([k, v]) => `<span>${k}</span><span class="v">${esc(v)}</span>`).join("");
-  $("bps").innerHTML = (S.breakpoints || []).map(b => `<li class="click" data-n="${esc(b.number)}">● ${esc(b.loc)}${b.file ? ` <span class="note">${esc(b.file)}:${b.line}</span>` : ""} <span class="note">(누르면 지움)</span></li>`).join("") || `<li class="note">없음</li>`;
+  $("bps").innerHTML = (S.breakpoints || []).map(b => `<li class="click" data-n="${esc(b.number)}"><i class="ic i-dot bpd"></i> ${esc(b.loc)}${b.file ? ` <span class="note">${esc(b.file)}:${b.line}</span>` : ""} <span class="note">누르면 지워요</span></li>`).join("") || `<li class="note">없음</li>`;
   $("bps").querySelectorAll("li[data-n]").forEach(li => li.onclick = () => act(() => api("break", { loc: li.dataset.n, on: false })));
   await showSource(f.file, f.line);
   if (S.asm && !f.file) $("src").innerHTML = S.asm.split("\n").map(l => `<div>${esc(l)}</div>`).join("");
@@ -241,7 +227,7 @@ async function showSource(file, line) {
   const text = srcCache[file];
   srcFile = file;
   $("srcpath").textContent = file;
-  if (text == null) { $("src").textContent = "소스를 못 읽음"; return; }
+  if (text == null) { $("src").textContent = "소스를 읽지 못했어요"; return; }
   const bps = new Set((S.breakpoints || []).filter(b => b.file === file).map(b => b.line));
   $("src").innerHTML = text.split("\n").map((l, i) => `<div data-n="${i + 1}" class="${i + 1 === line ? "on" : ""}${bps.has(i + 1) ? " bp" : ""}"><span class="ln">${i + 1}</span>${esc(l)}</div>`).join("");
   $("src").querySelectorAll(".ln").forEach(el => el.onclick = () => {
@@ -254,27 +240,27 @@ async function showSource(file, line) {
 async function renderWatch() {
   const out = [];
   for (const w of watches) {
-    let v;
-    try { v = (await api("eval", { expr: w, frame })).value; } catch (e) { v = "⚠ " + e.message; }
-    out.push(`<span class="click" data-w="${esc(w)}" title="누르면 빠짐">${esc(w)}</span><span class="v">${esc(v)}</span>`);
+    let v, bad = false;
+    try { v = (await api("eval", { expr: w, frame })).value; } catch (e) { v = e.message; bad = true; }
+    out.push(`<span class="click" data-w="${esc(w)}" title="누르면 빠져요">${esc(w)}</span><span class="v${bad ? " err" : ""}">${bad ? `<i class="ic i-alert"></i> ` : ""}${esc(v)}</span>`);
   }
   $("watch").innerHTML = out.join("");
   $("watch").querySelectorAll("[data-w]").forEach(el => el.onclick = () => { watches = watches.filter(x => x !== el.dataset.w); saveW(); renderWatch(); });
 }
 function saveW() { try { localStorage.setItem("tvz-watch", JSON.stringify(watches)); } catch (e) {} }
 function renderExternal(port) {
-  setBusy(true, "외부 gdb 모드: QEMU가 이 시점에 멈춰서 기다리는 중");
+  setBusy(true, "외부 gdb 모드예요. QEMU가 이 시점에 멈춰서 기다리고 있어요");
   $("ctl").querySelectorAll("button").forEach(x => x.disabled = true);
   const build = `pintos/${MODE}/build`;
   $("ext").innerHTML = `<h2>외부 gdb로 붙기</h2>
-    <div>터미널 (Pintos 저장소 루트에서):</div>
+    <div>Pintos 저장소 루트의 터미널에서 실행해 주세요.</div>
     <pre class="cmd mono">cd ${esc(build)} && gdb kernel.o -ex "target remote localhost:${port}"</pre>
-    <div>VS Code <span class="mono">.vscode/launch.json</span>의 configurations에 추가:</div>
+    <div>VS Code <span class="mono">.vscode/launch.json</span>의 configurations에 추가해 주세요.</div>
     <pre class="cmd mono">${esc(JSON.stringify({ name: "Pintos replay", type: "cppdbg", request: "launch", program: "${workspaceFolder}/" + build + "/kernel.o",
       cwd: "${workspaceFolder}/" + build, MIMode: "gdb", miDebuggerServerAddress: "localhost:" + port, stopAtConnect: true }, null, 2))}</pre>
-    <div class="note">기록을 재생하는 중이라 gdb의 거꾸로 실행(reverse-step, reverse-next, reverse-continue, reverse-finish)도 됨. 다만 매번 부팅부터 다시 재생해서 느림.
-    <span class="mono">monitor savevm</span>은 쓰지 말 것 (QEMU가 되감기 때 멈춤). 메모리/레지스터를 바꾸거나 함수를 부르면 재생이 깨짐.
-    QEMU의 gdb 포트는 한 번에 하나만 붙음. 다 쓰면 위의 "디버거 끄기"를 누를 것.</div>`;
+    <div class="note">기록을 재생하는 중이라 gdb의 거꾸로 실행(reverse-step, reverse-next, reverse-continue, reverse-finish)도 돼요. 다만 매번 부팅부터 다시 재생해서 느려요.
+    <span class="mono">monitor savevm</span>은 쓰지 말아 주세요. QEMU가 되감을 때 멈춰요. 메모리나 레지스터를 바꾸거나 함수를 부르면 재생이 깨져요.
+    QEMU의 gdb 포트에는 한 번에 하나만 붙을 수 있어요. 다 쓰면 위의 "디버거 끄기"를 눌러 주세요.</div>`;
   document.querySelector("main").classList.remove("busy");
 }
 
@@ -290,7 +276,7 @@ async function act(fn, why) {
 function step(s, rev) {
   if (s === "interrupt") return api("step", { what: "interrupt" }).then(refresh).catch(e => msg(e.message));
   act(() => api("step", { what: s, reverse: !!rev }),
-    rev ? "거꾸로 실행 중… (가까운 스냅샷부터 다시 재생해서 찾음. 몇 초~수십 초)" : s === "continue" ? "실행 중…" : "실행 중…");
+    rev ? "거꾸로 실행 중… 가까운 스냅샷부터 다시 재생해서 찾아요. 몇 초에서 수십 초 걸려요" : s === "continue" ? "실행 중…" : "실행 중…");
 }
 function goto(ic, i) { frame = 0; act(() => api("goto", { icount: ic }), `이벤트 #${i}로 이동 중…`); }
 $("ctl").querySelectorAll("button").forEach(b => b.onclick = () => step(b.dataset.s, b.dataset.r));
@@ -299,9 +285,9 @@ $("expr").onkeydown = e => { if (e.key === "Enter") $("b-eval").click(); };
 $("b-bp").onclick = () => { const v = $("bploc").value.trim(); if (v) act(() => api("break", { loc: v, on: true })); $("bploc").value = ""; };
 $("bploc").onkeydown = e => { if (e.key === "Enter") $("b-bp").click(); };
 $("f-sys").onchange = renderEvents;
-$("b-stop").onclick = () => api("stop", {}).then(() => { $("status").textContent = "디버거를 껐음"; setBusy(true); }).catch(e => msg(e.message));
+$("b-stop").onclick = () => api("stop", {}).then(() => { $("status").textContent = "디버거를 껐어요"; setBusy(true); }).catch(e => msg(e.message));
 $("b-ext").onclick = () => act(async () => { const ic = S && S.icount; const r = await api("start", { mode: MODE, test: TEST, icount: ic, external: true }); renderExternal(r.port); },
-  "외부 gdb용으로 다시 띄우는 중… (같은 시점까지 부팅부터 다시 재생해서 오래 걸릴 수 있음)");
+  "외부 gdb용으로 다시 띄우는 중… 같은 시점까지 부팅부터 다시 재생해서 오래 걸릴 수 있어요");
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "INPUT" || e.ctrlKey || e.metaKey || e.altKey) return;
   const m = { c: "continue", n: "next", s: "step", f: "finish", i: "stepi" }[e.key.toLowerCase()];
@@ -322,18 +308,18 @@ async function start() {
     refresh();
   } catch (e) {
     setBusy(false);
-    if (/기록이 없음|코드가 바뀜|다시 실행/.test(e.message)) {
+    if (/기록이 없어요|코드가 바뀌었어요|다시 실행/.test(e.message)) {
       $("status").innerHTML = "";
-      $("msg").innerHTML = `${esc(e.message)} <button id="b-rerun">기록 모드로 다시 실행</button>`;
+      $("msg").innerHTML = `${esc(e.message)} <button id="b-rerun" class="primary">기록 모드로 다시 실행</button>`;
       $("b-rerun").onclick = rerun;
     } else msg(e.message);
   }
 }
 async function rerun() {
-  msg("테스트를 기록 모드로 다시 돌리는 중… 끝나면 자동으로 시작함", true);
+  msg("테스트를 기록 모드로 다시 돌리고 있어요. 끝나면 자동으로 시작해요", true);
   const r = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json", "X-Thread-Viz": "1" },
     body: JSON.stringify({ mode: MODE, tests: [TEST], replay: true }) });
-  if (!r.ok) { msg((await r.json().catch(() => ({}))).error || "실행 실패"); return; }
+  if (!r.ok) { msg((await r.json().catch(() => ({}))).error || "실행하지 못했어요"); return; }
   const wait = async () => {
     const s = await (await fetch("/api/status")).json();
     if (s.running) { $("status").textContent = (s.log || "").trim().split("\n").slice(-1)[0] || "실행 중…"; return setTimeout(wait, 1500); }

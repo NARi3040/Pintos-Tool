@@ -13,7 +13,7 @@ import ctypes, hashlib, os, re, shutil, socket, subprocess, tempfile, threading,
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PINTOS = os.path.realpath(os.path.join(HERE, "..", "..", "pintos"))   # gdb가 주는 경로도 realpath라 맞춰 둠
-MODES = {"threads": ("traces", "threads"), "userprog": ("utraces", "userprog")}
+MODES = {"threads": ("traces", "threads"), "userprog": ("utraces", "userprog"), "vm": ("vtraces", "vm")}
 STEPS = {"continue": "-exec-continue", "next": "-exec-next", "step": "-exec-step", "finish": "-exec-finish",
          "stepi": "-exec-step-instruction", "nexti": "-exec-next-instruction"}
 SRC_EXT = (".c", ".h", ".S", ".s", ".lds", ".ld")
@@ -54,7 +54,7 @@ def mi_value(s, i):
             if s[i] == ",":
                 i += 1
         return (d if c == "{" else lst), i + 1
-    raise ValueError("MI 파싱 실패: %r" % s[i:i + 40])
+    raise ValueError("gdb MI 응답을 읽지 못했어요: %r" % s[i:i + 40])
 
 
 def mi_results(s):
@@ -82,7 +82,7 @@ def free_port():
                 return p
             except OSError:
                 continue
-    raise DebugError("디버거용 gdb 포트(1300~1399)가 다 쓰이고 있음")
+    raise DebugError("디버거용 gdb 포트(1300~1399)가 모두 쓰이고 있어요")
 
 
 # pintos 스크립트를 끄면 그 아래 QEMU는 고아가 되는데, 컨테이너의 PID 1(sleep 등)은 좀비를 안 거둠.
@@ -130,22 +130,22 @@ def snapshots(qcow):
 class Session:
     def __init__(self, mode, test, icount=None, external=False):
         if mode not in MODES or not re.match(r"^[a-z0-9-]+$", test or ""):
-            raise DebugError("잘못된 테스트")
+            raise DebugError("테스트 이름이 올바르지 않아요")
         outdir, kdir = MODES[mode]
         self.mode, self.test, self.external = mode, test, external
         self.rr = os.path.join(HERE, outdir, test + ".rr")
         self.build = os.path.join(PINTOS, kdir, "build")
         for f in ("", ".d0.qcow2"):
             if not os.path.exists(self.rr + f):
-                raise DebugError("이 테스트의 실행 기록이 없음. 기록 모드로 다시 실행해야 함 (Project 2는 REPLAY=1)")
+                raise DebugError("이 테스트의 실행 기록이 없어요. 기록 모드로 다시 실행해 주세요 (Project 2는 REPLAY=1)")
         if not os.path.exists(self.rr[:-3] + ".cmd"):
-            raise DebugError("이 테스트의 실행 기록이 없음. 기록 모드로 다시 실행해야 함")
+            raise DebugError("이 테스트의 실행 기록이 없어요. 기록 모드로 다시 실행해 주세요")
         try:
             want = open(self.rr[:-3] + ".kernel").read().strip()
         except OSError:
             want = None
         if want and want != hashlib.sha1(open(os.path.join(self.build, "kernel.bin"), "rb").read()).hexdigest():
-            raise DebugError("기록한 뒤에 커널 코드가 바뀜. 테스트를 다시 실행해야 같은 코드로 디버깅할 수 있음")
+            raise DebugError("기록한 뒤에 커널 코드가 바뀌었어요. 테스트를 다시 실행하면 같은 코드로 디버깅할 수 있어요")
         self.cmd = open(self.rr[:-3] + ".cmd", "rb").read().decode().split("\0")[:-1]
         self.user_prog = next((a.split(":")[0] for k, a in enumerate(self.cmd) if k and self.cmd[k - 1] == "-p"), None)
         self.console = os.path.join(HERE, outdir, test + ".debug-output")
@@ -205,15 +205,15 @@ class Session:
                                          stdin=subprocess.DEVNULL, start_new_session=True)
         if self.closed:   # 다른 요청이 그사이 세션을 닫았으면 방금 띄운 것도 끔 (안 그러면 기록 파일을 잡은 채 남음)
             self._kill_qemu()
-            raise DebugError("디버거가 닫혔음")
+            raise DebugError("디버거가 닫혔어요")
         for _ in range(150):
             if self.qemu.poll() is not None:
-                raise DebugError("QEMU가 바로 끝남: " + self.console_tail(3))
+                raise DebugError("QEMU가 바로 끝났어요: " + self.console_tail(3))
             with socket.socket() as s:
                 if s.connect_ex(("127.0.0.1", self.port)) == 0:
                     return
             time.sleep(0.1)
-        raise DebugError("QEMU gdb 포트가 안 열림")
+        raise DebugError("QEMU gdb 포트가 열리지 않았어요")
 
     def _kill_qemu(self):
         """pintos 스크립트와 그 아래 QEMU를 같이 끄고, QEMU가 디스크 잠금을 풀 때까지(그룹이 빌 때까지) 기다림"""
@@ -250,7 +250,7 @@ class Session:
                   "-gdb-set print elements 64"):
             self.mi(c)
         self.mi("-target-select remote localhost:%d" % self.port, timeout=20)
-        if self.user_prog and self.mode == "userprog" and os.path.exists(os.path.join(self.build, self.user_prog)):
+        if self.user_prog and self.mode != "threads" and os.path.exists(os.path.join(self.build, self.user_prog)):
             self.cli("add-symbol-file %s" % self.user_prog)
         # 끝까지 가면 QEMU가 꺼져서 세션이 끝나므로 power_off에서 멈춤 (panic도 결국 여기로 옴)
         self.end_bp = self.mi("-break-insert power_off").get("bkpt", {}).get("number")
@@ -289,7 +289,7 @@ class Session:
     def mi(self, cmd, timeout=30):
         gdb = self.gdb
         if gdb is None or gdb.poll() is not None:
-            raise DebugError("gdb가 끝났음. 디버거를 다시 시작할 것")
+            raise DebugError("gdb가 끝났어요. 디버거를 다시 시작해 주세요")
         self.token += 1
         tok = str(self.token)
         ev = self.q[tok] = threading.Event()
@@ -297,11 +297,11 @@ class Session:
             gdb.stdin.write(tok + cmd + "\n")
             gdb.stdin.flush()
         except (OSError, ValueError):
-            raise DebugError("gdb가 끝났음. 디버거를 다시 시작할 것")
+            raise DebugError("gdb가 끝났어요. 디버거를 다시 시작해 주세요")
         if not ev.wait(timeout):
-            raise DebugError("gdb 응답 없음: " + cmd)
+            raise DebugError("gdb가 응답하지 않아요: " + cmd)
         if tok not in self.replies:
-            raise DebugError("gdb가 끝났음. 디버거를 다시 시작할 것")
+            raise DebugError("gdb가 끝났어요. 디버거를 다시 시작해 주세요")
         cls, body = self.replies.pop(tok)
         del self.q[tok]
         if cls == "error":
@@ -363,7 +363,7 @@ class Session:
         try:
             while True:
                 if self.cancel:
-                    raise DebugError("중단함")
+                    raise DebugError("멈췄어요")
                 cur = self.icount() or 0
                 if cur >= ic:
                     break
@@ -407,9 +407,9 @@ class Session:
         with self.lock:
             self.cancel = False
             if self.running:
-                raise DebugError("실행 중임. 먼저 멈출 것")
+                raise DebugError("실행 중이에요. 먼저 멈춰 주세요")
             if what not in STEPS:
-                raise DebugError("모르는 명령")
+                raise DebugError("모르는 명령이에요")
             if not reverse:
                 # continue는 오래 걸릴 수 있어서 기다리지 않고 바로 돌아감 (화면이 상태를 다시 물어봄)
                 return self._resume(STEPS[what], None if what == "continue" else 60)
@@ -435,7 +435,7 @@ class Session:
         entry = pc - int(m.group(1)) if m else pc
         m = re.search(r"frame at (0x[0-9a-f]+)", self.cli("info frame"))
         if not m:
-            raise DebugError("현재 프레임을 못 읽음")
+            raise DebugError("현재 프레임을 읽지 못했어요")
         return entry, int(m.group(1), 16)
 
     @staticmethod
@@ -454,7 +454,7 @@ class Session:
         finally:
             self.mi("-break-delete " + " ".join(tmp))
         if not hits:
-            raise DebugError("이 함수를 부른 곳을 기록에서 못 찾음 (스레드 시작 함수이거나 인터럽트로 들어옴)")
+            raise DebugError("이 함수를 부른 곳을 기록에서 찾지 못했어요. 스레드 시작 함수이거나 인터럽트로 들어온 함수일 수 있어요")
         self._goto(hits[-1][0] - 1)   # 함수 첫 명령어 바로 전 = 호출한 call 명령어
 
     def _line_starts(self, entry):
@@ -528,13 +528,13 @@ class Session:
                 return self._goto(hit[0])
             if cur - back <= 0:
                 break
-        raise DebugError("바로 전 소스 줄을 못 찾음")
+        raise DebugError("바로 전 소스 줄을 찾지 못했어요")
 
     def goto(self, ic):
         """icount 시점으로 이동. 뒤면 그 직전 스냅샷에서 다시 재생함. 그 사이 breakpoint는 끔"""
         with self.lock:
             if self.running:
-                raise DebugError("실행 중임. 먼저 멈출 것")
+                raise DebugError("실행 중이에요. 먼저 멈춰 주세요")
             self.cancel = False
             self._goto(ic)
             self.stop_info = {"reason": "goto"}
@@ -542,11 +542,11 @@ class Session:
     def breakpoint(self, loc, on):
         with self.lock:
             if self.running:
-                raise DebugError("실행 중임. 먼저 멈출 것")
+                raise DebugError("실행 중이에요. 먼저 멈춰 주세요")
             if on:
                 # 함수 이름, 파일:줄, *주소만 받음 ("loc if 조건" 같은 식이 gdb로 가지 않게)
                 if not re.match(r"^([\w./+-]+(:\d+)?|\*0x[0-9a-fA-F]+)$", loc):
-                    raise DebugError("함수 이름이나 파일:줄만 쓸 수 있음")
+                    raise DebugError("함수 이름이나 파일:줄만 쓸 수 있어요")
                 return self.mi("-break-insert " + mi_quote(loc)).get("bkpt", {})
             for b in self._bps():
                 if b.get("number") != self.end_bp and (b.get("original-location") == loc or b.get("number") == loc):
@@ -556,10 +556,10 @@ class Session:
         # gdb 13+의 $_shell() 같은 편의 함수는 명령을 실행할 수 있어서 막음
         # gdb 13+의 $_shell()은 명령을 실행함. $f = $_shell 처럼 변수에 담아 부를 수도 있어서 $_ 자체를 막음
         if "$_" in expr or "\n" in expr:
-            raise DebugError("이 식은 쓸 수 없음 ($_로 시작하는 gdb 변수/함수)")
+            raise DebugError("$_로 시작하는 gdb 변수와 함수는 쓸 수 없어요")
         with self.lock:
             if self.running:
-                raise DebugError("실행 중임. 먼저 멈출 것")
+                raise DebugError("실행 중이에요. 먼저 멈춰 주세요")
             self.mi("-stack-select-frame %d" % int(frame))
             return self.mi("-data-evaluate-expression " + mi_quote(expr)).get("value")
 

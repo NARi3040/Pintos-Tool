@@ -299,6 +299,12 @@ def record(kind, stack=True, **kw):
     if sy:
         ev["sync"] = sy   # 객체 -> 상태 (None이면 못 읽음). 바뀐 것만
     ev["cnt"] = counts()
+    if vm_delta:   # 이 이벤트 전까지 바뀐 페이지 상태 (Project 3). 순서가 곧 상태라 시간순 그대로 붙임
+        ev["vm"] = [d for _, d in vm_delta]
+        by = [i for i, _ in vm_delta]
+        if any(i != ev["by"] for i in by):   # 바꾼 스레드가 이벤트 주인과 다르면 (fault 처리 중 디스크 I/O로 다른 스레드가 돎)
+            ev["vmby"] = by
+        vm_delta.clear()
     if ICOUNT:
         ev["ic"] = icount()
     events.append(ev)
@@ -334,6 +340,11 @@ def on_thread_exit():
     if i is None:
         return
     pending_sys.pop(i, None)
+    if VM_RET:
+        try:
+            vm_died_in_fault()
+        except (gdb.error, ValueError, IndexError, RuntimeError) as ex:
+            gdb.write("trace warning: fault 중 종료를 분석하지 못했어요 (%r)\n" % ex)
     exit_ev[i] = len(events)
     record("exit", target=i)
     dead.add(i)
@@ -432,12 +443,14 @@ def on_do_iret():
     record("uentry", via=via, regs=r, stack_hex=stack, prog=prog_of(i), dupsrc=dupsrc.get(i, []))
 
 def on_page_fault():
-    f = arg(0)
-    r = frame_regs(f)
     try:
         cr2 = int(gdb.parse_and_eval("(long)$cr2"))
     except gdb.error:
         cr2 = None
+    record("fault", **fault_info(arg(0), cr2))
+
+def fault_info(f, cr2):
+    r = frame_regs(f)
     user = (r["cs"] & 3) == 3
     ev = {"addr": cr2, "rip": r["rip"], "rsp": r["rsp"], "user": user, "err": r["error_code"]}
     if not user:   # 커널 안에서 난 fault면 어느 줄인지 남김
@@ -449,7 +462,8 @@ def on_page_fault():
             if not p.startswith(".."):
                 sources.add(p)
                 ev["kloc"] = "%s:%d" % (p, sal.line)
-    record("fault", prog=prog_of(cur()), **ev)
+    ev["prog"] = prog_of(cur())
+    return ev
 
 def on_kill():
     """exception.c의 kill(f): page fault 말고 다른 예외(#GP, #UD, 0으로 나누기 등)로 프로세스를 죽일 때"""
@@ -569,6 +583,145 @@ def on_file_close():
     elif fp in closed:
         names, locs = caller(skip=1, n=4)
         record("dclose", stack=False, fp=hex(fp), stack2=names, locs2=locs)
+
+# ---- Project 3: 페이지 상태 ----
+# 학생이 만든 SPT(해시 등)는 안 읽고, 원본 코드 함수에 건 훅으로 페이지마다 상태를 다시 만듦:
+# uninit_new(SPT에 들어감) -> anon/file_backed_initializer(lazy 로딩) -> pml4_set_page/clear_page(프레임 매핑)
+# -> *_swap_out/_swap_in -> *_destroy. 변화는 다음 이벤트의 "vm"에 [종류, 프로세스, va, ...]로 붙임
+VM = False
+VM_RET = None        # vm_try_handle_fault의 복귀 지점 (있으면 page_fault 대신 여기서 fault를 처리 결과와 같이 기록)
+vm_delta = []        # (바꾼 스레드, 변화)
+vm_done = {}         # 스레드 -> 마지막으로 vm_try_handle_fault 복귀에서 기록한 fault 주소
+vm_pages = {}        # struct page 주소 -> (프로세스, va)
+vm_frames = {}       # kva -> (프로세스, va)
+pml4_of = {}         # pml4 -> 프로세스
+sym_cache = {}
+
+def vm_add(d):
+    vm_delta.append((cur(), d))
+
+def pml4_owner(pml4):
+    if pml4 not in pml4_of:
+        for addr, i in threads.items():
+            if i not in dead:
+                try:
+                    pml4_of[u64(addr + T_PML4)] = i
+                except gdb.MemoryError:
+                    pass
+    return pml4_of.get(pml4)
+
+def sym_name(a):
+    if a not in sym_cache:
+        s = gdb.execute("info symbol %d" % a, to_string=True).split(" in section")[0].strip() if a else ""
+        sym_cache[a] = None if not a or s.startswith("No symbol") else s
+    return sym_cache[a]
+
+def fn_args(fr):
+    """프레임의 인자 심볼 (순서대로). pc가 안쪽 블록({ } 안)에 있으면 거기엔 인자가 없어서 함수 블록까지 올라감"""
+    b = fr.block()
+    while b.function is None and b.superblock is not None:
+        b = b.superblock
+    return [s for s in b if s.is_argument]
+
+def page_key(pg):
+    """struct page -> (프로세스, va). uninit_new에서 못 본 페이지(직접 만든 struct page)는 va와 매핑된 프레임으로 찾음"""
+    k = vm_pages.get(pg)
+    if k is None:
+        va = u64(pg + P_VA)
+        fr = u64(pg + P_FRAME)
+        try:
+            k = vm_frames.get(u64(fr + FR_KVA)) if fr else None
+        except gdb.MemoryError:   # 0으로 안 채운 struct page의 frame 필드
+            k = None
+        k = k if k and k[1] == va else (cur(), va)
+    return k
+
+def on_uninit_new():
+    pg, va, init, typ = arg(0), arg(1), arg(2), arg(3)
+    w = None
+    f = gdb.selected_frame().older()
+    if f and f.name() == "vm_alloc_page_with_initializer":
+        try:   # 세 번째 인자 (이름은 학생이 바꿀 수 있어 순서로 읽음)
+            w = bool(int(f.read_var(fn_args(f)[2])))
+        except (gdb.error, ValueError, IndexError, RuntimeError):
+            pass
+    k = vm_pages[pg] = (cur(), va)
+    vm_add(["a", k[0], va, typ & 0xffffffff, w, sym_name(init)])
+
+def on_vm_init(t):
+    def f():
+        k = page_key(arg(0))
+        vm_add(["t", k[0], k[1], t])
+    return f
+
+def on_set_page():
+    o = pml4_owner(arg(0))
+    va, kva = arg(1), arg(2)
+    vm_frames[kva] = (o, va)
+    vm_add(["m", o, va, kva, bool(arg(3) & 1)])
+
+def on_clear_page():
+    o, va = pml4_owner(arg(0)), arg(1)
+    for kva in [k for k, v in vm_frames.items() if v == (o, va)]:
+        del vm_frames[kva]
+    vm_add(["u", o, va])
+
+def on_pml4_destroy():
+    o = pml4_owner(arg(0))
+    pml4_of.pop(arg(0), None)
+    for kva in [k for k, v in vm_frames.items() if v[0] == o]:
+        del vm_frames[kva]
+    vm_add(["x", o])
+
+def on_swap(c):
+    def f():
+        k = page_key(arg(0))
+        vm_add([c, k[0], k[1]])
+    return f
+
+def on_vm_destroy():
+    pg = arg(0)
+    k = page_key(pg)
+    vm_pages.pop(pg, None)
+    vm_add(["d", k[0], k[1]])
+
+def on_vm_ret():
+    """vm_try_handle_fault (f, addr, user, write, not_present)가 돌아오기 직전. 원본 page_fault는 VM 빌드에서 항상
+    이 함수를 먼저 부르므로 page_fault에는 훅을 안 걸고 여기서 인자(순서로 읽음, 이름은 학생이 바꿀 수 있음)와 결과를 같이 남김.
+    fault마다 gdb가 멈추는 횟수가 곧 속도라서 한 번으로 줄임"""
+    f, addr = vm_fault_args(gdb.selected_frame())
+    vm_done[cur_addr()] = addr
+    record("fault", vmok=bool(int(gdb.parse_and_eval("$rax")) & 0xff), **fault_info(f, addr))
+
+def vm_fault_args(fr):
+    """vm_try_handle_fault 프레임 -> (intr_frame, fault 주소). 주소는 인자를 학생이 고쳤을 수 있어(pg_round_down 등)
+    부른 쪽 page_fault의 fault_addr(cr2)를 먼저 씀"""
+    a = fn_args(fr)
+    f, addr = (int(fr.read_var(s).cast(gdb.lookup_type("long"))) for s in a[:2])
+    try:
+        addr = int(fr.older().read_var("fault_addr").cast(gdb.lookup_type("long")))
+    except (gdb.error, ValueError, AttributeError):
+        pass
+    return f, addr
+
+def vm_died_in_fault():
+    """thread_exit 때: vm_try_handle_fault 안에서(또는 page_fault에서 부르기 전에) exit하면 복귀 훅이 안 걸려서 그 fault를 여기서 남김"""
+    fr, n = gdb.selected_frame(), 0
+    while fr and n < 20:
+        name = fr.name()
+        if name == "vm_try_handle_fault":
+            f, addr = vm_fault_args(fr)
+            break
+        if name == "page_fault":
+            if vm_done.get(cur_addr()) == int(fr.read_var("fault_addr").cast(gdb.lookup_type("long"))):
+                return   # vm_try_handle_fault가 false를 반환해 이미 기록함. page_fault가 그 뒤 exit한 것
+            f = int(fr.read_var(fn_args(fr)[0]).cast(gdb.lookup_type("long")))
+            addr = int(fr.read_var("fault_addr").cast(gdb.lookup_type("long")))
+            break
+        fr, n = fr.older(), n + 1
+    else:
+        return
+    record("fault", vmok=False, died=True, **fault_info(f, addr))
 
 # ---- 시간 초과 때: 멈춰 있는 스레드가 어디서 무엇을 기다리는지 ----
 def scope_off(fn, var):
@@ -728,18 +881,25 @@ def save(status):
     try:
         syms = user_syms()
     except Exception as ex:
-        gdb.write("trace warning: 유저 심볼 풀이 실패 (%r)\n" % ex)
+        gdb.write("trace warning: 유저 심볼을 풀이하지 못했어요 (%r)\n" % ex)
         syms = {}
     src = {p: open(os.path.join(ROOT, p), errors="replace").read() for p in sorted(sources)}
     text = json.dumps({"kind": "userprog", "threads": info, "events": events, "sources": src, "status": status,
                        "syscalls": SYSNAMES,
                        "lists": {"ready": READY_NAME, "sleep": SLEEP_NAME, "base": T_BASE is not None, "dons": T_DONS is not None}, "sig": SIG, "truncated": truncated,
                        "leaks": leftovers() if status == "ok" and not truncated else None,
-                       "usyms": syms})
+                       "usyms": syms, "vm": vm_info() if VM else None})
     with open(OUT + ".tmp", "w") as fp:
         fp.write(text)
     os.replace(OUT + ".tmp", OUT)
     gdb.write("trace: %d events, %s -> %s\n" % (len(events), status, OUT))
+
+def vm_info():
+    try:
+        upool = int(gdb.parse_and_eval("'palloc.c'::user_pool.used_map->bit_cnt"))
+    except gdb.error:
+        upool = None
+    return {"upool": upool, "ret": VM_RET is not None}
 
 def on_power_off():
     global ended
@@ -769,7 +929,7 @@ def finish():
                     try:
                         st = stuck()
                     except Exception as ex:
-                        gdb.write("trace warning: 멈춘 스레드 분석 실패 (%r)\n" % ex)
+                        gdb.write("trace warning: 멈춘 스레드를 분석하지 못했어요 (%r)\n" % ex)
                         st = []
                     record(status, secs=TIMEOUT, stuck=st)
                 break
@@ -818,6 +978,9 @@ def _watch():
 
 threading.Thread(target=_watch, daemon=True).start()
 
+REGS = ("rip", "rsp", "rbp", "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15", "eflags")
+last_stop = [None, set(), 0]   # [직전 정지의 레지스터, 이번 round에 불린 훅, 똑같이 다시 온 round 수]
+
 class Hook(gdb.Breakpoint):
     def __init__(self, spec, fn):
         super().__init__(spec if spec.startswith("*") else "*" + spec, internal=True)
@@ -828,6 +991,20 @@ class Hook(gdb.Breakpoint):
             stopped = True
             return True
         try:
+            # QEMU가 가끔 같은 브레이크포인트를 두 번 알림 (넘어가는 사이에 인터럽트가 걸렸다 돌아옴). 레지스터가 전부 같으면 두 번째만 같은 정지로 봄.
+            # 세 번째부터는 진짜 반복임 (매핑 없이 true를 반환해 같은 fault가 계속 남 등). 그래서 반복 횟수는 하나 적게 찍힘
+            fr = gdb.selected_frame()
+            sig = tuple(int(fr.read_register(r)) for r in REGS)
+            # 같은 주소에 훅이 여럿이면(효율 측정 등) 한 정지에서 다 불리므로, 같은 훅 객체가 다시 와야 새 정지(round)로 셈
+            if sig != last_stop[0]:
+                last_stop[:] = [sig, {self}, 0]
+            elif self in last_stop[1]:
+                last_stop[1] = {self}
+                last_stop[2] += 1
+            else:
+                last_stop[1].add(self)
+            if last_stop[2] == 1:
+                return False
             if self.fn() is True:
                 stopped = True
                 return True
@@ -851,15 +1028,15 @@ try:
     specs.append(("free", on_free))
     MALLOC = True
 except gdb.error:
-    gdb.write("trace warning: malloc.c의 arena 구조를 못 찾아, free한 lock/sema를 계속 읽을 수 있음\n")
+    gdb.write("trace warning: malloc.c의 arena 구조를 찾지 못해, free한 lock/sema를 계속 읽을 수 있어요\n")
 try:
     a = sysret_addr()
     if a:
         specs.append(("*" + a, on_sysret))
     else:
-        gdb.write("trace warning: syscall_entry에서 복귀 지점을 못 찾아 시스템 콜 반환값은 기록 안 함\n")
+        gdb.write("trace warning: syscall_entry에서 복귀 지점을 찾지 못해 시스템 콜 반환값은 기록하지 않아요\n")
 except gdb.error as ex:
-    gdb.write("trace warning: syscall_entry 분석 실패 (%s)\n" % ex)
+    gdb.write("trace warning: syscall_entry를 분석하지 못했어요 (%s)\n" % ex)
 for fn, cb in (("palloc_get_multiple", on_palloc_out), ("file_open", file_ret("open")),
                ("file_reopen", file_ret("reopen")), ("file_duplicate", file_ret("dup"))) + ((("malloc", on_malloc_out),) if MALLOC else ()):
     try:
@@ -867,12 +1044,36 @@ for fn, cb in (("palloc_get_multiple", on_palloc_out), ("file_open", file_ret("o
     except gdb.error:
         r = None
     if r is None:
-        gdb.write("trace warning: %s의 복귀 지점을 못 찾아 누수 검사에서 뺌\n" % fn)
+        gdb.write("trace warning: %s의 복귀 지점을 찾지 못해 누수 검사에서 뺐어요\n" % fn)
         MALLOC = MALLOC and fn != "malloc"
         continue
     specs.append(("*" + r, cb))
+# Project 3: VM 빌드(vm_try_handle_fault가 있음)일 때만. 함수 이름은 원본 스켈레톤 것
+try:
+    gdb.parse_and_eval("vm_try_handle_fault")
+    P_VA, P_FRAME = off("((struct page *)0)->va"), off("((struct page *)0)->frame")
+    FR_KVA = off("((struct frame *)0)->kva")
+    T_PML4 = off("((struct thread *)0)->pml4")
+    VM = True
+except gdb.error as ex:
+    if "vm_try_handle_fault" not in str(ex):   # VM 빌드인데 원본 구조체 필드가 없음
+        gdb.write("trace warning: VM 구조(struct page/frame의 va, frame, kva, thread의 pml4)를 찾지 못해 가상 메모리 기록을 껐어요 (%s)\n" % ex)
+if VM:
+    specs += [("uninit_new", on_uninit_new), ("anon_initializer", on_vm_init(1)), ("file_backed_initializer", on_vm_init(2)),
+              ("pml4_set_page", on_set_page), ("pml4_clear_page", on_clear_page), ("pml4_destroy", on_pml4_destroy),
+              ("anon_swap_out", on_swap("o")), ("file_backed_swap_out", on_swap("o")),
+              ("anon_swap_in", on_swap("i")), ("file_backed_swap_in", on_swap("i")),
+              ("uninit_destroy", on_vm_destroy), ("anon_destroy", on_vm_destroy), ("file_backed_destroy", on_vm_destroy)]
+    try:
+        VM_RET = ret_addr("vm_try_handle_fault")
+    except gdb.error:
+        VM_RET = None
+    if VM_RET:
+        specs = [x for x in specs if x[0] != "page_fault"] + [("*" + VM_RET, on_vm_ret)]
+    else:
+        gdb.write("trace warning: vm_try_handle_fault의 복귀 지점을 찾지 못해 fault 처리 결과는 기록하지 않아요\n")
 for spec, fn in specs:
     try:
         HOOKS.append(Hook(spec, fn))
     except gdb.error:
-        gdb.write("trace warning: %s 함수가 없어 이 이벤트는 기록 안 함\n" % spec)
+        gdb.write("trace warning: %s 함수가 없어 이 이벤트는 기록하지 않아요\n" % spec)

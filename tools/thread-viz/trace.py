@@ -571,7 +571,7 @@ def detect_scale():
             raw = struct.unpack("<i", bytes(inf.read_memory(cur_addr() + O["recent_cpu"], 4)))[0]
             pairs.append((raw, int(gdb.parse_and_eval("thread_get_recent_cpu ()"))))
     except gdb.error as ex:
-        gdb.write("trace warning: getter 호출 실패 (%s)\n" % ex)
+        gdb.write("trace warning: getter를 호출하지 못했어요 (%s)\n" % ex)
     for raw, g in sorted(pairs, key=lambda p: -abs(p[1])):
         if abs(g) >= 50 and raw:
             est = raw * 100 / g
@@ -620,7 +620,7 @@ def finish():
             try:
                 fp_scale = detect_scale()
             except BaseException as ex:
-                gdb.write("trace warning: 배율 감지 실패 (%r)\n" % ex)
+                gdb.write("trace warning: 배율을 감지하지 못했어요 (%r)\n" % ex)
     else:
         status = "attach_failed" if not events else ("timeout" if timed_out and not interrupted else "aborted")
         for _ in range(3):   # SIGINT가 늦게 도착해 KeyboardInterrupt가 끼어들 수 있어 재시도
@@ -718,7 +718,7 @@ for spec, fn in [
     try:
         HOOKS.append(Hook(spec, fn))
     except gdb.error:
-        gdb.write("trace warning: %s 함수가 없어 이 이벤트는 기록 안 함\n" % spec)
+        gdb.write("trace warning: %s 함수가 없어 이 이벤트는 기록하지 않아요\n" % spec)
 
 if PERF:
     specs = [("run_test", p_run_test), ("thread_launch", perf_on(p_switch)), ("power_off", perf_on(p_end))]
@@ -730,13 +730,13 @@ if PERF:
         except gdb.error:
             r = None
         if r is None:
-            gdb.write("trace warning: %s의 ret을 못 찾아 효율 측정에서 뺌\n" % fn)
+            gdb.write("trace warning: %s의 ret을 찾지 못해 효율 측정에서 뺐어요\n" % fn)
             continue
         specs += [(fn, perf_on(a)), (r, perf_on(b))]
     for spec, fn in specs:
         try:
             HOOKS.append(Hook(spec, fn))
         except gdb.error:
-            gdb.write("trace warning: %s 효율 측정 훅 실패\n" % spec)
+            gdb.write("trace warning: %s 효율 측정 훅을 걸지 못했어요\n" % spec)
 
 gdb.write("trace layout: " + ", ".join("%s=%s" % (k, v or "없음") for k, v in LAYOUT.items()) + "\n")

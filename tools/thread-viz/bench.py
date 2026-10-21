@@ -56,10 +56,10 @@ def installed(tdir):
 def install(pintos):
     tdir = os.path.join(pintos, "tests", "threads")
     if not os.path.isdir(tdir):
-        print("[bench] pintos/tests/threads가 없어 벤치 설치를 건너뜀"); return 1
+        print("[bench] pintos/tests/threads가 없어서 벤치 설치를 건너뛰었어요"); return 1
     out, bad = edits(tdir, False)
     if out is None:
-        print(f"[bench] {bad}에서 등록할 위치를 못 찾아 설치 안 함. README의 수동 설치를 볼 것"); return 1
+        print(f"[bench] {bad}에서 등록할 위치를 찾지 못해서 설치하지 않았어요. README의 수동 설치를 참고해 주세요"); return 1
     changed = [os.path.basename(p) for p, s in out if read(p) != s]
     for p, s in out:
         if read(p) != s:
@@ -71,14 +71,14 @@ def install(pintos):
             if not os.path.exists(dst) or not filecmp.cmp(os.path.join(SRC, n + ext), dst, shallow=False):
                 shutil.copyfile(os.path.join(SRC, n + ext), dst); copied.append(n + ext)
     if changed or copied:
-        print(f"[bench] 벤치 {len(names)}개 설치/갱신함 (고친 파일: {', '.join(changed) or '없음'}, 복사: {len(copied)}개)")
+        print(f"[bench] 벤치 {len(names)}개 설치/갱신했어요 (고친 파일: {', '.join(changed) or '없음'}, 복사: {len(copied)}개)")
     return 0
 
 def remove(pintos):
     tdir = os.path.join(pintos, "tests", "threads")
     out, bad = edits(tdir, True)
     if out is None:
-        print(f"[bench] {bad}를 못 고쳐서 제거 안 함"); return 1
+        print(f"[bench] {bad}를 고치지 못해서 제거하지 않았어요"); return 1
     for p, s in out:
         write(p, s)
     for n in names:
@@ -86,7 +86,7 @@ def remove(pintos):
             if os.path.exists(os.path.join(tdir, n + ext)):
                 os.remove(os.path.join(tdir, n + ext))
     write(CHOICE, "no\n")
-    print("[bench] 벤치를 제거함. 다시 설치하려면 BENCH=1 tools/thread-viz/run.sh 또는 python3 tools/thread-viz/bench.py install")
+    print("[bench] 벤치를 제거했어요. 다시 설치하려면 BENCH=1 tools/thread-viz/run.sh 또는 python3 tools/thread-viz/bench.py install을 실행해 주세요")
     return 0
 
 def auto(pintos):
@@ -99,14 +99,14 @@ def auto(pintos):
         choice = "yes"
     if not choice:
         if not sys.stdin.isatty():
-            print("[bench] 벤치 테스트(부하 테스트 + 복잡도 판정용)는 설치 안 함. 설치하려면 터미널에서 실행해 대답하거나 BENCH=1로 실행")
+            print("[bench] 벤치 테스트(부하 테스트 + 복잡도 판정용)는 설치하지 않았어요. 설치하려면 터미널에서 실행해 대답하거나 BENCH=1로 실행해 주세요")
             return 0
-        print("[bench] thread-viz 벤치 테스트를 설치할까?")
+        print("[bench] thread-viz 벤치 테스트를 설치할까요?")
         print("  - 부하 테스트 3개와 복잡도 판정용 bench-scale을 pintos/tests/threads/에 복사하고,")
-        print("    tests.c, tests.h, Make.tests에 등록함 (make check 대상은 아님). 안 하면 공식 테스트만 추적함")
+        print("    tests.c, tests.h, Make.tests에 등록해요 (make check 대상은 아니에요). 설치하지 않으면 공식 테스트만 추적해요")
         print("  - 나중에 지우려면: python3 tools/thread-viz/bench.py remove")
         try:
-            ans = input("설치할까? [y/N] ").strip().lower()
+            ans = input("설치할까요? [y/N] ").strip().lower()
         except EOFError:
             ans = ""
         choice = "yes" if ans in ("y", "yes") else "no"
