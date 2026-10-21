@@ -13,6 +13,18 @@ set -u
 # 동시 실행 관리에 wait -n -p를 씀 (bash 5.1 이상. 정글 Docker 이미지 ubuntu 22.04는 5.1)
 if (( BASH_VERSINFO[0] * 100 + BASH_VERSINFO[1] < 501 )); then echo "bash 5.1 이상이 필요해요 (지금 $BASH_VERSION)"; exit 1; fi
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# 시작할 때 새 버전이 있으면 받아서 적용하고 새 run.sh로 다시 시작함 (네트워크가 안 되면 실패했다고 알리고 계속함).
+# 건너뛰려면 --no-update 인자 또는 NO_UPDATE_CHECK=1
+skip="${NO_UPDATE_CHECK:-0}"; args=()
+for a in "$@"; do if [ "$a" = --no-update ]; then skip=1; else args+=("$a"); fi; done
+set -- ${args[@]+"${args[@]}"}
+if [ "$skip" != 1 ]; then
+    python3 "$HERE/update.py" --auto; rc=$?
+    [ "$rc" = 10 ] && THREAD_VIZ_UPDATED=1 exec "$HERE/run.sh" --no-update "$@"
+    [ "$rc" != 0 ] && echo "업데이트하지 못했어요 (위 메시지 참고). 지금 버전으로 계속해요"
+elif [ -z "${THREAD_VIZ_UPDATED:-}" ]; then
+    echo "[thread-viz] v$(cat "$HERE/VERSION" 2>/dev/null || echo '?') - 업데이트 확인을 건너뛰었어요"
+fi
 PINTOS="$HERE/../../pintos"
 # pintos/ 폴더 안에 설치한 경우(pintos/tools/thread-viz)도 받아 줌
 [ ! -d "$PINTOS/utils" ] && [ -d "$HERE/../../utils" ] && [ -d "$HERE/../../threads" ] && PINTOS="$HERE/../.."
@@ -29,18 +41,6 @@ for f in "$PINTOS"/utils/*; do
     printf '#!/bin/sh\nexec %s "%s" "$@"\n' "${first%$'\r'}" "$f" > "$SHIM/${f##*/}" && chmod +x "$SHIM/${f##*/}"
 done
 [ -d "$SHIM" ] && export PATH="$SHIM:$PATH"
-# 시작할 때 새 버전이 있으면 받아서 적용하고 새 run.sh로 다시 시작함 (네트워크가 안 되면 실패했다고 알리고 계속함).
-# 건너뛰려면 --no-update 인자 또는 NO_UPDATE_CHECK=1
-skip="${NO_UPDATE_CHECK:-0}"; args=()
-for a in "$@"; do if [ "$a" = --no-update ]; then skip=1; else args+=("$a"); fi; done
-set -- ${args[@]+"${args[@]}"}
-if [ "$skip" != 1 ]; then
-    python3 "$HERE/update.py" --auto; rc=$?
-    [ "$rc" = 10 ] && THREAD_VIZ_UPDATED=1 exec "$HERE/run.sh" --no-update "$@"
-    [ "$rc" != 0 ] && echo "업데이트하지 못했어요 (위 메시지 참고). 지금 버전으로 계속해요"
-elif [ -z "${THREAD_VIZ_UPDATED:-}" ]; then
-    echo "[thread-viz] v$(cat "$HERE/VERSION" 2>/dev/null || echo '?') - 업데이트 확인을 건너뛰었어요"
-fi
 
 # 뷰어 서버(server.py): 이미 떠 있으면 재사용, 없으면 백그라운드로 띄움. 수집 중에도 진행도를 볼 수 있게 먼저 띄움
 # 기본은 127.0.0.1에만 열어서 같은 네트워크의 다른 기기에 소스가 노출되지 않게 함 (VIEW_BIND=0.0.0.0으로 변경 가능)
