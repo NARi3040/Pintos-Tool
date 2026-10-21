@@ -880,8 +880,11 @@ async function rerun() {
 $("rerun").onclick = rerun;
 
 // 이벤트가 0개인 트레이스(gdb 연결 실패 등)는 목록에서 빼고 개수만 알림. run.sh가 다음 실행 때 다시 수집함
-const broken = Object.keys(TR).filter(n => !(TR[n].events || []).length);
-const names = Object.keys(TR).filter(n => !broken.includes(n));
+// 런처의 "선택한 결과만 보기"로 열면(?only=a,b) 그 테스트만 목록에 둠. 맞는 게 하나도 없으면 전부 보임
+const only = (new URLSearchParams(location.search).get("only") || "").split(",").filter(n => n in TR);
+const allUrl = (() => { const u = new URL(location.href); u.searchParams.delete("only"); u.hash = ""; return u.href.replace(/([?&]vm)=(?=&|$)/, "$1"); })();
+const broken = (only.length ? only : Object.keys(TR)).filter(n => !(TR[n].events || []).length);
+const names = (only.length ? only : Object.keys(TR)).filter(n => !broken.includes(n));
 if (!names.length) {
   $("rerun").hidden = true;
   document.querySelector("main").innerHTML = '<div class="panel">' + (broken.length
@@ -895,6 +898,7 @@ if (!names.length) {
   const nPass = names.filter(n => TR[n].result && TR[n].result.pass).length;
   $("avg").textContent = `PASS ${nPass}/${names.length} · 평균 ${(names.reduce((a, n) => a + TR[n].score.score, 0) / names.length).toFixed(1)}점` + effAvg() +
     (broken.length ? ` · 수집 실패 ${broken.length}개(${broken.join(", ")}) — run.sh 다시 실행` : "");
+  if (only.length) $("avg").innerHTML = `선택한 ${only.length}개만 · ${esc($("avg").textContent)} · <a href="${esc(allUrl)}">전체 보기</a>`;
   let saved = null; try { saved = localStorage.getItem("pv-test"); } catch (e) {}
   $("test").value = names.includes(saved) ? saved : (names.includes("priority-donate-one") ? "priority-donate-one" : names[0]);
   $("test").onchange = () => load($("test").value);

@@ -55,6 +55,7 @@ details { margin-top: 8px; }
     <div class="bar">
       <button class="primary" id="run-sel">선택한 테스트 실행</button>
       <button id="run-all">전체 실행</button>
+      <a class="btn" id="view-sel" hidden>선택한 결과만 보기</a>
       <label class="chk" id="mlfqs-wrap"><input type="checkbox" id="mlfqs">전체 실행에 mlfqs 포함</label>
       <span class="grow"></span>
       <a class="btn" id="view">결과 보기</a>
@@ -124,6 +125,12 @@ function updButtons() {
   $("run-sel").textContent = n ? `선택한 테스트 실행 (${n}개)` : "선택한 테스트 실행";
   $("run-sel").disabled = busy || !n;
   $("run-all").disabled = busy;
+  // 고른 테스트 중 결과가 있는 것만 뷰어에 보이게 함 (?only=a,b)
+  const res = new Map((TESTS && TESTS[mode] || []).flatMap(g => g.tests.map(t => [t.name, t.result])));
+  const done = [...sel[mode]].filter(t => res.get(t));
+  $("view-sel").hidden = busy || !done.length;
+  $("view-sel").textContent = `선택한 결과만 보기 (${done.length}개)`;
+  $("view-sel").href = PAGE[mode] + (PAGE[mode].includes("?") ? "&" : "?") + "only=" + encodeURIComponent(done.join(","));
 }
 
 async function api(path, body) {
