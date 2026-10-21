@@ -111,9 +111,10 @@ BUILD="$KDIR/build"
 # gcc 14부터 원본 Pintos 코드의 경고 두 개(mmu.c의 int-conversion, stdio.c의 incompatible-pointer-types)가 에러가 됨.
 # 그런 gcc(최신 호스트)에서만 경고로 되돌림. Make.config의 WARNINGS를 그대로 쓰고 끝에 덧붙임
 # 유저 프로그램 라이브러리(lib/user/console.c)의 implicit-function-declaration도 같은 이유로 에러가 됨
+# VM 스켈레톤(vm/vm.c spt_remove_page의 void 함수에서 return true)의 return-mismatch도 같음
 WARN=()
 if [ "$(gcc -dumpversion 2>/dev/null | cut -d. -f1)" -ge 14 ] 2>/dev/null; then
-    WARN=("WARNINGS=-Wall -W -Wstrict-prototypes -Wmissing-prototypes -Wsystem-headers -Wno-error=int-conversion -Wno-error=incompatible-pointer-types -Wno-error=implicit-function-declaration")
+    WARN=("WARNINGS=-Wall -W -Wstrict-prototypes -Wmissing-prototypes -Wsystem-headers -Wno-error=int-conversion -Wno-error=incompatible-pointer-types -Wno-error=implicit-function-declaration -Wno-error=return-mismatch")
 fi
 # kernel.lds.s는 make 내장 규칙(cpp threads/kernel.lds.S > threads/kernel.lds.s)으로 만들어짐.
 # Windows 폴더를 마운트한 컨테이너(대소문자 구분 없음)에서는 build/threads/kernel.lds.s가 있으면 make가 그걸 kernel.lds.S로 잡아서
