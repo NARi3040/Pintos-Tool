@@ -22,6 +22,7 @@ sleep_list, lock / semaphore / condition 대기 리스트, donation 흐름을 �
     ├── server.py                (뷰어 서버 + 런처 API)
     ├── index.html               (런처: 테스트 골라 실행)
     ├── ui.css                   (페이지 공통 스타일)
+    ├── tl.js                    (뷰어 공통 타임라인: 확대/축소, 보이는 구간만 그림)
     ├── bin/qemu-system-x86_64   (QEMU 래퍼: 기록/재생, gdb 포트)
     ├── trace.py, viewer.html    (Project 1 트레이서, 뷰어)
     ├── uprog.py, uprog.html     (Project 2/3 트레이서, 뷰어)
@@ -221,6 +222,7 @@ pkill -f "server.py 8000"
 - 이벤트 직후 상태: CPU / ready_list / sleep_list / BLOCKED
 - 동기화 객체: lock(holder, 대기자), semaphore(value, 대기자), condition(대기자)
 - donation: 대기 체인(`high → L2 → medium → L1 → main`)과 스레드별 donations 리스트
+- 타임라인: 스레드별 상태 막대. 누르면 그 이벤트로 가고, 올려 두면 설명이 떠요. `+`/`-` 키나 Ctrl(⌘)+휠로 확대·축소, `0` 키나 맞춤 버튼으로 전체 보기 (Project 2/3 뷰어도 같아요). 마우스로 끌면 옆으로 움직여요
 - 효율 지표: 스위치 / yield 횟수, 스레드별 실행·대기 tick, 선점 지연, 재미용 점수, 효율 점수와 함수별 평균 명령어 수 (기준 → 지금)
 - 채점 결과(.ck): FAIL이면 자동으로 펼쳐져요
 

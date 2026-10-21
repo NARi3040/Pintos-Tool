@@ -157,12 +157,52 @@ pre { font-family: var(--mono); font-size: 12px; background: var(--sunk); border
   --i-terminal: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='16' rx='3'/%3E%3Cpath d='m7 9 3 3-3 3m5 0h5'/%3E%3C/svg%3E");
   --i-link: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 4h6v6m0-6-9 9M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4'/%3E%3C/svg%3E");
   --i-power: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0'/%3E%3C/svg%3E");
+  --i-plus: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14M5 12h14'/%3E%3C/svg%3E");
+  --i-minus: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3C/svg%3E");
+  --i-refresh: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7'/%3E%3C/svg%3E");
 }
 .i-play { --i: var(--i-play); } .i-pause { --i: var(--i-pause); } .i-stop { --i: var(--i-stop); }
 .i-left { --i: var(--i-left); } .i-right { --i: var(--i-right); } .i-back { --i: var(--i-back); } .i-rewind { --i: var(--i-rewind); }
 .i-check { --i: var(--i-check); } .i-x { --i: var(--i-x); } .i-alert { --i: var(--i-alert); } .i-info { --i: var(--i-info); }
 .i-help { --i: var(--i-help); } .i-dot { --i: var(--i-dot); } .i-bug { --i: var(--i-bug); } .i-terminal { --i: var(--i-terminal); }
 .i-link { --i: var(--i-link); } .i-power { --i: var(--i-power); }
+.i-plus { --i: var(--i-plus); } .i-minus { --i: var(--i-minus); } .i-refresh { --i: var(--i-refresh); }
+
+/* 이벤트 타임라인 (tl.js): 이름 칸은 고정, 오른쪽 트랙만 가로 스크롤. 캔버스는 보이는 폭만큼만 */
+.tl-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.tl-head h2 { margin: 0; }
+.tl-ctl { display: flex; gap: 4px; align-items: center; }
+.tl-zoom { min-width: 48px; text-align: center; color: var(--muted); }
+.tl { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: start; }
+.tl-lab { font-size: 12px; color: var(--sub); min-width: 0; }
+.tl-lab > div { height: 22px; line-height: 22px; padding-right: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-lab > div + div { box-shadow: inset 0 1px 0 var(--line); }
+.tl-lab small { color: var(--muted); }
+.tl-lab .tl-band { line-height: 1.5; padding-top: 10px; white-space: normal; }
+.tl-sc { overflow-x: auto; overflow-y: hidden; }
+.tl-sp { position: relative; cursor: grab; user-select: none; }
+.tl-sp.pan { cursor: grabbing; }
+.tl-sp.near, .tl-sp.scrub { cursor: ew-resize; }
+.tl-sp canvas { position: sticky; left: 0; display: block; }
+.tl-cur { position: absolute; top: 0; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--fg); pointer-events: none; }
+/* 현재 위치 손잡이: 끌어서 넘겨 봄 */
+.tl-knob { position: absolute; top: -9px; left: -5px; width: 12px; height: 12px; border-radius: 50%; background: var(--fg);
+  box-shadow: 0 0 0 2px var(--panel); pointer-events: auto; cursor: ew-resize; touch-action: none; transition: transform .1s; }
+.tl-knob:hover, .tl-sp.scrub .tl-knob { transform: scale(1.25); }
+.tl-sc, .tl-lab { padding-top: 10px; }   /* 손잡이 자리. 두 칸을 같이 내려 줄을 맞춤 */
+.tl-tip { position: fixed; z-index: 5; pointer-events: none; background: var(--panel); color: var(--fg); box-shadow: var(--shadow);
+  border-radius: 12px; padding: 8px 12px; font-size: 12px; line-height: 1.5; max-width: min(360px, calc(100vw - 16px)); }
+.tl-tip .t { color: var(--muted); }
+/* 범례: 작은 점 칩 */
+.legend { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--sub); margin-top: 12px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; background: var(--sunk); border-radius: 8px; padding: 2px 8px; }
+.legend i { width: 8px; height: 8px; border-radius: 50%; flex: none; color: var(--c); background: var(--c); }
+/* 타임라인과 같은 모양의 범례 표시 */
+.legend i.lg-bar { width: 14px; height: 8px; border-radius: 3px; }
+.legend i.lg-tick { width: 3px; height: 10px; border-radius: 1px; }
+.legend i.lg-link { width: 2px; height: 6px; border-radius: 0; margin-bottom: 4px; position: relative; }
+.legend i.lg-link::after { content: ""; position: absolute; left: -3px; top: 6px; border: 4px solid transparent; border-top: 4px solid var(--c); border-bottom: 0; }
+.legend i.lg-bad { width: 0; height: 0; border-radius: 0; background: none; border: 4px solid transparent; border-top: 5px solid var(--c); border-bottom: 0; }
 
 /* 뷰어 공통 머리: 흰 표면, 아래로 스크롤해도 붙어 있음 */
 header.top { padding: 12px 24px; display: flex; flex-direction: column; gap: 10px; background: var(--panel);

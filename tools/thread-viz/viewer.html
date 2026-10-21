@@ -56,10 +56,6 @@ th { color: var(--muted); font-weight: 600; }
 #events div.cur { background: var(--accent-soft); }
 #events .t { color: var(--muted); min-width: 34px; text-align: right; }
 #events div.bad { color: var(--err); }
-#tl-wrap { overflow-x: auto; }
-#tl { display: block; cursor: pointer; }
-.legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 8px; flex-wrap: wrap; }
-.legend i { display: inline-block; width: 12px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
 .sync { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; align-items: center;
   padding: 12px 8px; border-top: 1px solid var(--line); }
 .sync:first-child { border-top: 0; }
@@ -109,6 +105,7 @@ pre#out { max-height: 260px; overflow: auto; margin: 0; white-space: pre-wrap; }
   <div class="hrow">
     <h1>Pintos 스레드 흐름</h1>
     <select id="test"></select>
+    <button id="rerun" class="soft" title="이 테스트를 다시 추적해요"><i class="ic i-refresh"></i>다시 실행</button>
     <span id="res" class="res none"></span>
     <span id="avg"></span>
     <span class="grow"></span>
@@ -127,6 +124,7 @@ pre#out { max-height: 260px; overflow: auto; margin: 0; white-space: pre-wrap; }
   </div>
 </header>
 <div id="prog"></div>
+<div class="toast" id="toast" role="status"></div>
 <main>
   <div>
     <div class="panel now"><h2>이번 이벤트</h2><div id="desc"></div><div id="stack" class="mono"></div><div id="viol"></div>
@@ -137,10 +135,11 @@ pre#out { max-height: 260px; overflow: auto; margin: 0; white-space: pre-wrap; }
       <div class="panel"><h2>동기화 객체 — lock / semaphore / condition 대기 리스트 (앞 → 뒤)</h2><div id="sync"></div></div>
       <div class="panel"><h2>donation — 대기 체인 (wait_on_lock → holder) / donations 리스트</h2><div id="don"></div></div>
     </div>
-    <div class="panel"><h2>타임라인 (가로축 = 이벤트 순서, 누르면 이동)</h2>
-      <div id="tl-wrap"><canvas id="tl"></canvas></div>
-      <div class="legend"><span><i style="background:var(--run)"></i>RUNNING</span><span><i style="background:var(--ready)"></i>READY (ready_list)</span>
-        <span><i style="background:var(--sleep)"></i>BLOCKED (sleep_list)</span><span><i style="background:var(--blocked)"></i>BLOCKED (그 외)</span></div>
+    <div class="panel"><div class="tl-head"><h2>타임라인 (가로축 = 이벤트 순서, 누르면 이동)</h2><span class="grow"></span><span class="tl-ctl" id="tl-ctl"></span></div>
+      <div id="tl"></div>
+      <div class="legend"><span><i class="lg-bar" style="--c:var(--run)"></i>RUNNING</span><span><i class="lg-bar" style="--c:var(--ready)"></i>READY (ready_list)</span>
+        <span><i class="lg-bar" style="--c:var(--sleep)"></i>BLOCKED (sleep_list)</span><span><i class="lg-bar" style="--c:var(--blocked)"></i>BLOCKED (그 외)</span>
+        <span><i class="lg-bar" style="--c:var(--dying)"></i>DYING</span><span><i class="lg-bad" style="--c:var(--dying)"></i>규칙 위반</span></div>
     </div>
     <div class="panel">
       <div class="tabs" role="tablist">
@@ -162,6 +161,7 @@ pre#out { max-height: 260px; overflow: auto; margin: 0; white-space: pre-wrap; }
 </main>
 <script src="data.js"></script>
 <script src="baseline.js"></script>
+<script src="tl.js"></script>
 <script>
 // 이름 앞부분(args-, wait- ...)으로 묶음. 하나뿐인 것은 "그 외"로 모음 (index.html과 같은 기준)
 function bucket(ts) {
@@ -328,7 +328,7 @@ function render() {
   const box = $("events");
   if (curEl && (curEl.offsetTop < box.scrollTop || curEl.offsetTop + curEl.offsetHeight > box.scrollTop + box.clientHeight))
     box.scrollTop = curEl.offsetTop - box.clientHeight / 2;
-  drawTimeline();
+  tl.cursor(idx);
 }
 
 function stateOf(s, k) {
@@ -418,39 +418,18 @@ function mlCursor(tick) {
   document.querySelectorAll(".mlcur").forEach(d => d.style.left = Math.max(ml.L, left) + "px");
 }
 
-let tlCache = null;   // 타임라인 바탕은 한 번만 그리고, 단계마다 현재 위치 선만 다시 그림
-function drawTimeline() {
-  const cv = $("tl"), css = getComputedStyle(document.documentElement);
-  const ids = T.threads.map((_, i) => i);
-  const W = Math.max(cv.parentElement.clientWidth, Math.min(view.length * 4, 6000) + 90), rowH = 18, H = ids.length * rowH + 4, L = 88;
-  const dpr = window.devicePixelRatio || 1, step = (W - L) / view.length;
-  const key = css.getPropertyValue("--run") + "|" + dpr;   // 테마(다크/라이트)나 화면 배율이 바뀌면 다시 그림
-  if (!tlCache || tlCache.view !== view || tlCache.W !== W || tlCache.key !== key) {
-    const off = document.createElement("canvas");
-    off.width = W * dpr; off.height = H * dpr;
-    const g = off.getContext("2d"); g.scale(dpr, dpr);
-    const col = { run: css.getPropertyValue("--run"), ready: css.getPropertyValue("--ready"),
-      sleep: css.getPropertyValue("--sleep"), blocked: css.getPropertyValue("--blocked"), dying: css.getPropertyValue("--dying") };
-    g.font = "12px system-ui"; g.textBaseline = "middle";
-    ids.forEach((k, r) => {
-      const y = r * rowH + 2;
-      g.fillStyle = css.getPropertyValue("--fg"); g.fillText(T.threads[k].name, 4, y + rowH / 2);
-      view.forEach((ev, x) => {
-        const st = stateOf(after(ev), k);
-        if (!st) return;
-        g.fillStyle = col[st];
-        g.fillRect(L + x * step, y + 2, Math.max(step, 1), rowH - 5);
-      });
-    });
-    tlCache = { view, W, off, key };
-  }
-  cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + "px"; cv.style.height = H + "px";
-  const g = cv.getContext("2d");
-  g.drawImage(tlCache.off, 0, 0);
-  g.scale(dpr, dpr);
-  g.fillStyle = css.getPropertyValue("--fg");
-  g.fillRect(L + idx * step + step / 2 - 1, 0, 2, H);
-  cv.onclick = e => { const x = e.offsetX - L; if (x >= 0) { idx = Math.floor(x / step); render(); } };
+const ST = ["run", "ready", "sleep", "blocked", "dying"], ST_NAME = ["RUNNING", "READY", "BLOCKED (sleep)", "BLOCKED", "DYING"];
+const tl = Timeline($("tl"), { store: "pv-zoom", ctl: $("tl-ctl"),
+  pick: i => { idx = i; render(); },
+  tip: (i, r, c) => { const ev = view[i];
+    return `<div class="t mono">#${i + 1} · tick ${after(ev).tick ?? "?"}</div>${r >= 0 ? `<div><b>${name(r)}</b> ${c ? ST_NAME[c - 1] : ""}</div>` : ""}<div>${short(ev)}</div>`; } });
+// 보기(view)가 바뀔 때 한 번만 이벤트 × 스레드 상태 코드를 계산해 둠
+function setTimeline() {
+  const R = T.threads.length, codes = new Uint8Array(view.length * R);
+  view.forEach((ev, x) => { const s = after(ev); for (let k = 0; k < R; k++) codes[x * R + k] = ST.indexOf(stateOf(s, k)) + 1; });
+  tl.data({ n: view.length, codes, colors: ST.map(c => "--" + c),
+    rows: T.threads.map((t, k) => `<span title="${esc(t.name)}"><i class="ic i-dot" style="color:${color(k)}"></i> ${esc(t.name)}</span>`),
+    bad: view.flatMap((e, k) => e.viol.length ? [k] : []) });
 }
 
 function showSource(loc) {
@@ -798,6 +777,7 @@ function rebuild(keep) {
   $("events").querySelectorAll("div").forEach(d => d.onclick = () => { idx = +d.dataset.k; render(); });
   const f = view.findIndex(e => e.i >= old);
   idx = keep ? (f >= 0 ? f : view.length - 1) : 0;   // 필터로 뒤쪽이 다 숨겨지면 마지막으로
+  setTimeline();
   render();
 }
 
@@ -839,10 +819,12 @@ function play() {
 }
 
 // run.sh 진행 상태 폴링 (http로 열었을 때만 동작). 수집이 끝나면 새 data.js로 새로고침
+let rerunAt = 0;   // 다시 실행을 누른 시각 (아래 rerun)
 async function pollProgress() {
   let p;
   try { p = await (await fetch("progress.json", { cache: "no-store" })).json(); } catch (e) { return; }
   const el = $("prog");
+  $("rerun").disabled = !!p.running || Date.now() - rerunAt < 5000;
   if (p.running) {
     const pct = p.total ? Math.round(p.done / p.total * 100) : 0, sec = Math.round(Date.now() / 1000 - p.started);
     const ic = r => `<i class="ic i-${r.result === "PASS" ? "check" : r.result === "FAIL" ? "x" : "help"}"></i>`;
@@ -861,10 +843,47 @@ async function pollProgress() {
 }
 setInterval(pollProgress, 1000); pollProgress();
 
+function toast(m) {
+  const t = $("toast"); t.textContent = m; t.classList.add("on");
+  clearTimeout(t.hideTimer); t.hideTimer = setTimeout(() => t.classList.remove("on"), 5000);
+}
+// 지금 고른 테스트를 서버(server.py)로 다시 추적함. 진행 상황과 끝난 뒤 새로고침은 위 pollProgress가 맡음
+// 빌드 실패처럼 progress.json을 쓰기 전에 run.sh가 끝나면 pollProgress가 알 수 없어서, 서버 상태로 끝을 확인함
+async function watchRun() {
+  for (;;) {
+    await new Promise(r => setTimeout(r, 2000));
+    let st; try { st = await (await fetch("/api/status", { cache: "no-store" })).json(); } catch (e) { return; }
+    if (st.running) continue;
+    if (st.exit && st.exit !== 130) {
+      rerunAt = 0; $("rerun").disabled = false;
+      toast("다시 실행하지 못했어요. 빌드 에러일 수 있어요. 런처(index.html)의 run.sh 출력에서 확인해 주세요");
+    }
+    return;
+  }
+}
+async function rerun() {
+  $("rerun").disabled = true; rerunAt = Date.now();
+  try {
+    const r = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json", "X-Thread-Viz": "1" },
+      body: JSON.stringify({ mode: "threads", tests: [T.name], mlfqs: false }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "HTTP " + r.status);
+    // 새로고침 뒤에도 이 테스트·단계로 열리게 (주소의 #테스트가 저장된 선택보다 먼저임)
+    history.replaceState(null, "", "#" + encodeURIComponent(T.name) + "/" + idx);
+    toast(`${T.name} 테스트를 다시 추적하고 있어요. 끝나면 새로고침해요`);
+    pollProgress(); watchRun();
+  } catch (e) {
+    rerunAt = 0; $("rerun").disabled = false;
+    toast(e instanceof TypeError ? "서버에 연결하지 못했어요. tools/thread-viz/run.sh로 연 페이지에서 다시 실행할 수 있어요" : `다시 실행하지 못했어요. ${e.message}`);
+  }
+}
+$("rerun").onclick = rerun;
+
 // 이벤트가 0개인 트레이스(gdb 연결 실패 등)는 목록에서 빼고 개수만 알림. run.sh가 다음 실행 때 다시 수집함
 const broken = Object.keys(TR).filter(n => !(TR[n].events || []).length);
 const names = Object.keys(TR).filter(n => !broken.includes(n));
 if (!names.length) {
+  $("rerun").hidden = true;
   document.querySelector("main").innerHTML = '<div class="panel">' + (broken.length
     ? `트레이스를 수집하지 못했어요 (${esc(broken.join(", "))}). tools/thread-viz/run.sh를 다시 실행해 주세요.` : "data.js가 없어요. tools/thread-viz/run.sh를 먼저 실행해 주세요.") + "</div>";
 } else {
@@ -895,8 +914,9 @@ if (!names.length) {
     else if (e.key === "ArrowLeft") { stop(); idx--; render(); e.preventDefault(); }
     else if (e.key === " ") { play(); e.preventDefault(); }
     else if (e.key === "n") nextBad();
+    else if (tl.key(e)) e.preventDefault();
   });
-  window.addEventListener("resize", () => { drawTimeline(); mlBuild(); render(); });
+  window.addEventListener("resize", () => { mlBuild(); render(); });
   $("ml-metric").onchange = () => { mlBuild(); render(); };
   // URL 해시로 바로 이동: viewer.html#priority-donate-chain/25
   const [hn, hi] = decodeURIComponent(location.hash.slice(1)).split("/");
