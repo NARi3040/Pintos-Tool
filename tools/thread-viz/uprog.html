@@ -1139,8 +1139,11 @@ async function rerun() {
 $("rerun").onclick = rerun;
 
 for (const n in TR) TR[n].name = n;
-const broken = Object.keys(TR).filter(n => !(TR[n].events || []).length);
-const names = Object.keys(TR).filter(n => !broken.includes(n));
+// 런처의 "선택한 결과만 보기"로 열면(?only=a,b) 그 테스트만 목록에 둠. 맞는 게 하나도 없으면 전부 보임
+const only = (new URLSearchParams(location.search).get("only") || "").split(",").filter(n => n in TR);
+const allUrl = (() => { const u = new URL(location.href); u.searchParams.delete("only"); u.hash = ""; return u.href.replace(/([?&]vm)=(?=&|$)/, "$1"); })();
+const broken = (only.length ? only : Object.keys(TR)).filter(n => !(TR[n].events || []).length);
+const names = (only.length ? only : Object.keys(TR)).filter(n => !broken.includes(n));
 if (!names.length) {
   $("rerun").hidden = true;
   document.querySelector("main").innerHTML = '<div class="panel">' + (broken.length
@@ -1152,7 +1155,8 @@ if (!names.length) {
   // option에는 아이콘을 못 넣어서 결과를 글자로 붙임
   $("test").innerHTML = optgroups(names, n => `<option value="${n}">${n} · ${resultOf(TR[n])[1]}${TR[n].nbad ? ` · 이상 ${TR[n].nbad}` : ""}</option>`);
   const nPass = names.filter(n => TR[n].result && TR[n].result.pass).length, nBad = names.filter(n => TR[n].nbad).length;
-  $("summary").textContent = `PASS ${nPass}/${names.length} · 이상 있는 테스트 ${nBad}개` + (broken.length ? ` · 수집 실패 ${broken.length}개(${broken.join(", ")})` : "");
+  $("summary").innerHTML = (only.length ? `선택한 ${only.length}개만 · ` : "") + esc(`PASS ${nPass}/${names.length} · 이상 있는 테스트 ${nBad}개` + (broken.length ? ` · 수집 실패 ${broken.length}개(${broken.join(", ")})` : ""))
+    + (only.length ? ` · <a href="${esc(allUrl)}">전체 보기</a>` : "");
   let saved = null; try { saved = localStorage.getItem("uv-test"); } catch (e) {}
   $("test").value = names.includes(saved) ? saved : names[0];
   $("test").onchange = () => load($("test").value);
