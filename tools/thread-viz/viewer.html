@@ -4,171 +4,140 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pintos Thread Viewer</title>
+<link rel="stylesheet" href="ui.css">
 <style>
-:root {
-  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #6b7385; --line: #dde1e8;
-  --run: #2f9e5b; --ready: #3b6fd8; --blocked: #8a8f9c; --sleep: #b07a1f; --dying: #c94a4a;
-  --hl: #fff3c4; --accent: #3b6fd8;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #14171d; --panel: #1c2028; --text: #e3e6ec; --muted: #8b93a5; --line: #2c323d;
-    --run: #3fbf72; --ready: #5b8cf0; --blocked: #6b7180; --sleep: #d29a3a; --dying: #e06666;
-    --hl: #4a4220; --accent: #5b8cf0;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #14171d; --panel: #1c2028; --text: #e3e6ec; --muted: #8b93a5; --line: #2c323d;
-  --run: #3fbf72; --ready: #5b8cf0; --blocked: #6b7180; --sleep: #d29a3a; --dying: #e06666;
-  --hl: #4a4220; --accent: #5b8cf0;
-}
-* { box-sizing: border-box; }
 /* 단계마다 패널 높이가 바뀌면 브라우저가 스크롤 위치를 보정(scroll anchoring)해서 페이지가 끌려감. 꺼서 사용자 스크롤 유지 */
-body { overflow-anchor: none; margin: 0; background: var(--bg); color: var(--text);
-  font: 14px/1.45 system-ui, "Noto Sans KR", sans-serif; }
-code, .mono { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 12.5px; }
-header { padding: 8px 16px; display: flex; flex-direction: column; gap: 6px;
-  background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; }
-.hrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.hrow .grow { flex: 1; }
-header h1 { font-size: 15px; margin: 0 6px 0 0; }
+body { overflow-anchor: none; }
 #test { max-width: min(460px, 100%); }
-select, button { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
-  border-radius: 6px; padding: 4px 9px; cursor: pointer; }
-button:hover { border-color: var(--accent); }
-button:disabled { opacity: .55; cursor: default; border-color: var(--line); }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; min-width: 76px; }
-label.chk { color: var(--muted); font-size: 13px; display: flex; gap: 4px; align-items: center; }
-#slider { flex: 1 1 200px; min-width: 120px; accent-color: var(--accent); }
+#slider { flex: 1 1 200px; min-width: 120px; }
 #pos { color: var(--muted); min-width: 120px; }
-main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; padding: 12px 16px; align-items: start; }
+#play { min-width: 84px; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; padding: 12px 24px; align-items: start; }
 @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
-.panel.now { border-left: 4px solid var(--accent); }
-.panel.now details { margin-top: 8px; }
+@media (max-width: 800px) { main { padding: 12px 16px; } }
+.panel.now details { margin-top: 12px; }
 .pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
 @media (max-width: 1300px) { .pair { grid-template-columns: 1fr; } }
-.tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line); margin: -4px 0 10px; }
-.tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--muted); padding: 6px 10px; }
-.tabs button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
-.tabs button.alert::after { content: " ●"; color: var(--dying); }
-.panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 8px; }
 #desc { font-size: 15px; }
-#desc a.dbg { font-size: 12.5px; margin-left: 6px; white-space: nowrap; }
-#desc .kind { display: inline-block; padding: 1px 8px; border-radius: 4px; background: var(--accent); color: #fff; font-size: 12px; margin-right: 6px; }
-#stack { color: var(--muted); margin-top: 4px; }
+#desc a.dbg { font-size: 13px; margin-left: 6px; white-space: nowrap; }
+#desc .kind { display: inline-block; padding: 2px 8px; border-radius: 8px; background: var(--accent-soft); color: var(--accent);
+  font: 600 13px/1.4 var(--font); margin-right: 8px; }
+#stack { color: var(--muted); margin-top: 8px; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; min-height: 62px; }
-.lane { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; align-items: center;
-  padding: 8px 0; border-top: 1px dashed var(--line); }
-.lane:first-child { border-top: 0; }
+.lane { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; align-items: center;
+  padding: 12px 0; border-top: 1px solid var(--line); }
+.lane:first-child { border-top: 0; padding-top: 0; }
 .lane-name { font-weight: 600; font-size: 13px; }
-.lane-name small { display: block; color: var(--muted); font-weight: 400; }
+.lane-name small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; }
 .arrow { color: var(--muted); align-self: center; }
-.empty { color: var(--muted); font-style: italic; align-self: center; }
-.card { border: 2px solid var(--c); border-radius: 8px; padding: 4px 9px; min-width: 92px; background: var(--panel);
+.empty { color: var(--muted); font-size: 14px; align-self: center; }
+/* 스레드 색은 왼쪽 막대로 */
+.card { box-shadow: inset 3px 0 0 var(--c); border-radius: 8px; padding: 6px 10px 6px 13px; min-width: 92px; background: var(--sunk);
   transition: background .3s; }
 .card.changed { background: var(--hl); }
-.card .nm { font-weight: 600; }
+.card .nm { font-weight: 600; font-size: 14px; }
 .card .pr { font-size: 12px; color: var(--muted); }
-.card .pr b { color: var(--text); }
+.card .pr b { color: var(--fg); }
 .card .don { color: var(--dying); font-weight: 600; }
-.card .wt { font-size: 11.5px; color: var(--muted); }
+.card .wt { font-size: 12px; color: var(--muted); }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
-th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); }
-th { color: var(--muted); font-weight: 500; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; }
+.tp { overflow-x: auto; }   /* 넓은 표는 패널 안에서 가로 스크롤 */
+.sw { font-size: 12px; }
 .st { font-weight: 600; font-size: 12px; }
 .st-RUNNING { color: var(--run); } .st-READY { color: var(--ready); } .st-BLOCKED { color: var(--blocked); }
 .st-SLEEP { color: var(--sleep); } .st-DYING { color: var(--dying); }
 /* --hh = 헤더 높이 (JS가 채움). 이벤트 목록을 헤더 바로 아래에 고정 */
-#events { position: sticky; top: calc(var(--hh, 90px) + 12px); max-height: calc(100vh - var(--hh, 90px) - 24px); overflow-y: auto; padding: 0; }
-#events div { padding: 3px 10px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 12.5px; display: flex; gap: 6px; }
-#events div:hover { background: var(--bg); }
-#events div.cur { background: var(--hl); }
+#events { position: sticky; top: calc(var(--hh, 90px) + 12px); max-height: calc(100vh - var(--hh, 90px) - 24px); overflow-y: auto; padding: 8px; }
+#events div { padding: 6px 10px; border-radius: 12px; cursor: pointer; font-size: 13px; display: flex; gap: 8px; align-items: center;
+  transition: background .15s; }
+#events div:hover { background: var(--sunk); }
+#events div.cur { background: var(--accent-soft); }
 #events .t { color: var(--muted); min-width: 34px; text-align: right; }
+#events div.bad { color: var(--err); }
 #tl-wrap { overflow-x: auto; }
 #tl { display: block; cursor: pointer; }
-.legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 6px; flex-wrap: wrap; }
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 8px; flex-wrap: wrap; }
 .legend i { display: inline-block; width: 12px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
-.sync { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px; align-items: center;
-  padding: 8px 6px; border-top: 1px dashed var(--line); border-radius: 6px; }
+.sync { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; align-items: center;
+  padding: 12px 8px; border-top: 1px solid var(--line); }
 .sync:first-child { border-top: 0; }
-.sync.changed { background: var(--hl); }
-.sync .kd { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); margin-left: 4px; }
+.sync.changed { background: var(--hl); border-radius: 12px; }
+.sync .kd { display: inline-block; font-size: 12px; padding: 0 6px; border-radius: 8px; background: var(--weak); color: var(--sub); margin-left: 4px; }
 .sync .meta { font-size: 12px; color: var(--muted); }
-.slot { border: 1px dashed var(--line); border-radius: 8px; padding: 4px; display: flex; gap: 4px; align-items: center; }
-.viol { margin-top: 8px; border: 1px solid var(--dying); border-radius: 6px; padding: 6px 10px; color: var(--dying); font-size: 13px; }
-.viol div::before { content: "⚠ "; }
-#events div.bad { color: var(--dying); }
-#events div.bad span:last-child::before { content: "⚠ "; }
+.slot { background: var(--weak); border-radius: 12px; padding: 4px; display: flex; gap: 4px; align-items: center; }
+.viol { margin-top: 12px; background: var(--err-soft); border-radius: 12px; padding: 10px 14px; color: var(--err); font-size: 14px; }
+.viol div { display: flex; gap: 6px; align-items: baseline; }
+.viol .ic { flex: none; vertical-align: 0; transform: translateY(.15em); }
 #stack a { color: var(--accent); cursor: pointer; text-decoration: none; }
 #stack a.sel { text-decoration: underline; font-weight: 600; }
 #src-title { color: var(--muted); margin-bottom: 4px; }
-#src { margin: 0; overflow-x: auto; background: var(--bg); border-radius: 6px; padding: 6px 0; }
-#src div { padding: 0 10px; white-space: pre; }
+#src { margin: 0; overflow-x: auto; background: var(--sunk); border-radius: 12px; padding: 8px 0; }
+#src div { padding: 0 12px; white-space: pre; }
 #src div.on { background: var(--hl); }
 #src .ln { display: inline-block; width: 42px; color: var(--muted); text-align: right; margin-right: 12px; user-select: none; }
 .lockarrow { font-size: 12px; color: var(--muted); align-self: center; text-align: center; }
-.lockarrow b { display: block; color: var(--text); }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 10px; }
-.chip { border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; background: var(--bg); }
-.chip b { font-size: 16px; display: block; }
-.chip span { font-size: 11.5px; color: var(--muted); }
-.score { display: flex; gap: 14px; align-items: center; border: 2px solid var(--accent); border-radius: 10px; padding: 8px 14px; margin: 8px 0; }
-.score .big { font-size: 34px; font-weight: 700; line-height: 1; }
-.score .gr { font-size: 22px; font-weight: 700; color: var(--accent); }
-.score ul { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--muted); }
+.lockarrow b { display: block; color: var(--fg); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.chip { border-radius: 12px; padding: 8px 12px; background: var(--sunk); }
+.chip b { font-size: 17px; display: block; }
+.chip span { font-size: 12px; color: var(--muted); }
+.score { display: flex; gap: 16px; align-items: center; background: var(--accent-soft); border-radius: var(--r); padding: 14px 18px; margin: 12px 0 8px; }
+.score .big { font-size: 22px; font-weight: 700; line-height: 1; color: var(--accent); min-width: 44px; text-align: center; }
+.score .big .ok { color: var(--ok); } .score .big .bad { color: var(--err); }
+.score .gr { font-size: 17px; font-weight: 700; }
+.score ul { margin: 4px 0 0; padding-left: 18px; font-size: 13px; color: var(--sub); }
 #avg { color: var(--muted); font-size: 13px; }
-.res { font-weight: 700; padding: 2px 9px; border-radius: 6px; font-size: 13px; color: #fff; }
-.res.pass { background: var(--run); } .res.fail { background: var(--dying); } .res.none { background: var(--blocked); }
-#prog { display: none; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
-#prog .bar { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; margin: 6px 0; }
-#prog .bar i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+#prog { display: none; padding: 12px 24px; background: var(--panel); font-size: 14px; }
+#prog .track { margin: 8px 0; }
 #prog .done { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; }
-#prog .done span { border: 1px solid var(--line); border-radius: 5px; padding: 0 6px; }
-.mlwrap { position: relative; margin-top: 6px; }
+#prog .done span { background: var(--sunk); border-radius: 8px; padding: 2px 8px; display: inline-flex; gap: 4px; align-items: center; }
+#prog .done .i-check { color: var(--ok); } #prog .done .i-x { color: var(--err); } #prog .done .i-help { color: var(--muted); }
+@media (max-width: 800px) { #prog { padding: 12px 16px; } }
+.mlwrap { position: relative; margin-top: 8px; }
 .mlwrap canvas { display: block; width: 100%; cursor: pointer; }
-.mlcur { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: .6; pointer-events: none; }
-.mlhead { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.mlcur { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--fg); opacity: .6; pointer-events: none; }
+.mlhead { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 pre#ck { max-height: 300px; overflow: auto; margin: 8px 0 0; white-space: pre-wrap; }
-.note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.note { margin-top: 8px; }
 pre#out { max-height: 260px; overflow: auto; margin: 0; white-space: pre-wrap; }
-details summary { cursor: pointer; color: var(--muted); }
 </style>
 </head>
 <body>
-<header>
+<header class="top">
   <div class="hrow">
     <h1>Pintos 스레드 흐름</h1>
     <select id="test"></select>
     <span id="res" class="res none"></span>
     <span id="avg"></span>
     <span class="grow"></span>
-    <label class="chk"><input type="checkbox" id="f-sys" checked>커널 내부 락 숨김</label>
-    <label class="chk"><input type="checkbox" id="f-idle" checked>빈 타임슬라이스 yield 숨김</label>
-    <a href="uprog.html" style="color:var(--accent);font-size:13px">Project 2 뷰어</a>
+    <label class="chk"><input type="checkbox" class="tg" id="f-sys" checked>커널 내부 락 숨김</label>
+    <label class="chk"><input type="checkbox" class="tg" id="f-idle" checked>빈 타임슬라이스 yield 숨김</label>
+    <a href="uprog.html" class="btn">Project 2 뷰어</a>
   </div>
   <div class="hrow">
-    <button id="prev" title="이전 (←)">◀</button>
-    <button id="play" class="primary" title="재생/정지 (space)">▶ 재생</button>
-    <button id="next" title="다음 (→)">▶</button>
+    <button id="prev" class="icon" title="이전 (←)" aria-label="이전"><i class="ic i-left"></i></button>
+    <button id="play" class="primary" title="재생/정지 (space)"><i class="ic i-play"></i>재생</button>
+    <button id="next" class="icon" title="다음 (→)" aria-label="다음"><i class="ic i-right"></i></button>
     <select id="speed"><option value="900">느리게</option><option value="450" selected>보통</option><option value="150">빠르게</option></select>
     <input type="range" id="slider" min="0" value="0">
     <span id="pos" class="mono"></span>
-    <button id="nextbad" title="다음 규칙 위반 이벤트로 (n)">⚠ 다음 이상</button>
+    <button id="nextbad" title="다음 규칙 위반 이벤트로 (n)"><i class="ic i-alert"></i>다음 이상</button>
   </div>
 </header>
 <div id="prog"></div>
 <main>
   <div>
     <div class="panel now"><h2>이번 이벤트</h2><div id="desc"></div><div id="stack" class="mono"></div><div id="viol"></div>
-      <details id="src-panel"><summary>소스 (call stack 항목 클릭하면 바뀜)</summary>
+      <details id="src-panel"><summary>소스 (call stack 항목을 누르면 바뀌어요)</summary>
       <div id="src-title" class="mono" style="margin-top:8px"></div><div id="src" class="mono"></div></details></div>
     <div class="panel"><h2>이벤트 직후 상태</h2><div id="lanes"></div></div>
     <div class="pair">
       <div class="panel"><h2>동기화 객체 — lock / semaphore / condition 대기 리스트 (앞 → 뒤)</h2><div id="sync"></div></div>
       <div class="panel"><h2>donation — 대기 체인 (wait_on_lock → holder) / donations 리스트</h2><div id="don"></div></div>
     </div>
-    <div class="panel"><h2>타임라인 (가로축 = 이벤트 순서, 클릭하면 이동)</h2>
+    <div class="panel"><h2>타임라인 (가로축 = 이벤트 순서, 누르면 이동)</h2>
       <div id="tl-wrap"><canvas id="tl"></canvas></div>
       <div class="legend"><span><i style="background:var(--run)"></i>RUNNING</span><span><i style="background:var(--ready)"></i>READY (ready_list)</span>
         <span><i style="background:var(--sleep)"></i>BLOCKED (sleep_list)</span><span><i style="background:var(--blocked)"></i>BLOCKED (그 외)</span></div>
@@ -177,9 +146,9 @@ details summary { cursor: pointer; color: var(--muted); }
       <div class="tabs" role="tablist">
         <button data-t="met" role="tab">효율 지표</button><button data-t="table" role="tab">스레드 표</button><button data-t="ml" id="tab-ml" role="tab" hidden>MLFQS</button><button data-t="ck" id="tab-ck" role="tab">채점 결과 (.ck)</button><button data-t="out" role="tab">테스트 출력</button>
       </div>
-      <div class="tp" id="tp-met"><div class="note" style="margin:0 0 4px">이 테스트 전체, run_test 이후 기준</div><div id="met"></div></div>
+      <div class="tp" id="tp-met"><div class="note" style="margin:0 0 4px">이 테스트 전체에서 run_test 이후를 기준으로 해요</div><div id="met"></div></div>
       <div class="tp" id="tp-table" hidden><div id="table"></div></div>
-      <div class="tp" id="tp-ml" hidden><div class="mlhead"><h2 style="margin:0">MLFQS — 가로축 = tick (클릭하면 이동)</h2>
+      <div class="tp" id="tp-ml" hidden><div class="mlhead"><h2 style="margin:0">MLFQS — 가로축 = tick (누르면 이동)</h2>
         <select id="ml-metric"><option value="pri">priority</option><option value="rcpu">recent_cpu</option><option value="nice">nice</option></select></div>
         <div class="mlwrap" id="ml-a"><canvas id="ml-c"></canvas><div class="mlcur"></div></div>
         <div class="note" style="margin-top:8px">load_avg</div>
@@ -194,6 +163,15 @@ details summary { cursor: pointer; color: var(--muted); }
 <script src="data.js"></script>
 <script src="baseline.js"></script>
 <script>
+// 이름 앞부분(args-, wait- ...)으로 묶음. 하나뿐인 것은 "그 외"로 모음 (index.html과 같은 기준)
+function bucket(ts) {
+  const m = new Map(), etc = [], out = [];
+  for (const t of ts) { const p = t.split("-")[0]; m.has(p) ? m.get(p).push(t) : m.set(p, [t]); }
+  for (const [p, v] of m) v.length > 1 ? out.push([p, v]) : etc.push(...v);
+  if (etc.length) out.push(["그 외", etc]);
+  return out;
+}
+const optgroups = (names, opt) => bucket(names).map(([p, ns]) => `<optgroup label="${p}">${ns.map(opt).join("")}</optgroup>`).join("");
 const $ = id => document.getElementById(id);
 const TR = window.TRACES || {};
 for (const n in TR) TR[n].name = n;
@@ -225,7 +203,7 @@ function isNoise(ev) {
 function describe(ev) {
   const by = name(ev.by), tg = name(ev.target), s0 = ev.stack[0] || "";
   switch (ev.kind) {
-    case "create": return `<b>${by}</b>가 스레드 <b>${tg}</b> 생성 (priority ${ev.pri}, init_thread)${ev.stack[0] === "thread_create" ? ". thread_unblock 전까지 BLOCKED" : ". 부팅 스레드라 바로 RUNNING"}`;
+    case "create": return `<b>${by}</b>가 스레드 <b>${tg}</b> 생성 (priority ${ev.pri}, init_thread)${ev.stack[0] === "thread_create" ? ". thread_unblock 전까지 BLOCKED예요" : ". 부팅 스레드라 바로 RUNNING이에요"}`;
     case "unblock": return `<b>${tg}</b> → ready_list 삽입 (thread_unblock, 호출: ${s0})`;
     case "block": return `<b>${tg}</b> BLOCKED 전환 (thread_block, 호출: ${s0}${ev.stack[1] ? " ← " + ev.stack[1] : ""})`;
     case "yield": return `<b>${tg}</b> CPU 양보 → ready_list (thread_yield, 원인: ${
@@ -233,20 +211,20 @@ function describe(ev) {
     case "switch": return `컨텍스트 스위칭 <b>${by}</b> → <b>${tg}</b> (thread_launch)`;
     case "exit": return `<b>${tg}</b> 종료 (thread_exit) → DYING`;
     case "set_priority": return `<b>${tg}</b>가 thread_set_priority(${ev.pri}) 호출`;
-    case "sleep": return `<b>${tg}</b>가 timer_sleep(${ev.ticks}) 호출 → sleep_list로 감`;
+    case "sleep": return `<b>${tg}</b>가 timer_sleep(${ev.ticks}) 호출 → sleep_list로 가요`;
     case "lock_acquire": return `<b>${by}</b>가 lock_acquire(${ev.lock}) 시도 — ${
       ev.holder == null ? "보유자 없음 → 바로 획득" : `보유자 <b>${name(ev.holder)}</b> → 대기, donation 발생 가능`}`;
     case "lock_release": return `<b>${by}</b>가 lock_release(${ev.lock})`;
     case "sema_down": return `<b>${by}</b>가 sema_down(${ev.sema}) (호출: ${s0})`;
     case "sema_up": return `<b>${by}</b>가 sema_up(${ev.sema}) (호출: ${s0})`;
-    case "cond_wait": return `<b>${by}</b>가 cond_wait(${ev.cond}, ${ev.lock}) — ${ev.lock} 놓고 ${ev.cond} 대기 리스트로 감`;
-    case "cond_signal": return `<b>${by}</b>가 cond_signal(${ev.cond}) — 대기자 하나 깨움`;
-    case "cond_broadcast": return `<b>${by}</b>가 cond_broadcast(${ev.cond}) — 대기자 전부 깨움`;
-    case "run_test": return `테스트 시작: <b>${esc(ev.test)}</b> (run_test). 이 시점 이전 객체는 커널 내부용(k 접두사)`;
+    case "cond_wait": return `<b>${by}</b>가 cond_wait(${ev.cond}, ${ev.lock}) — ${ev.lock} 놓고 ${ev.cond} 대기 리스트로 가요`;
+    case "cond_signal": return `<b>${by}</b>가 cond_signal(${ev.cond}) — 대기자 하나를 깨워요`;
+    case "cond_broadcast": return `<b>${by}</b>가 cond_broadcast(${ev.cond}) — 대기자를 모두 깨워요`;
+    case "run_test": return `테스트 시작: <b>${esc(ev.test)}</b> (run_test). 이 시점 이전 객체는 커널 내부용이에요(k 접두사)`;
     case "end": return `테스트 종료 (power_off)`;
     case "panic": return `<b>Kernel PANIC</b> at ${esc(ev.file)}:${ev.line} in ${esc(ev.func)}() — "${esc(ev.msg)}" (실행 중: ${by})`;
-    case "aborted": return `<b>중단됨</b> — power_off 전에 연결이 끊김 (Ctrl-C, QEMU 비정상 종료 등). 실행 중: ${by}. 마지막 상태 확인`;
-    case "timeout": return `<b>시간 초과</b> — ${ev.secs}초 안에 안 끝나서 강제로 멈춤 (무한루프/데드락 의심). 실행 중: ${by}. 대기 체인과 BLOCKED 스레드 확인`;
+    case "aborted": return `<b>중단됨</b> — power_off 전에 연결이 끊겼어요 (Ctrl-C, QEMU 비정상 종료 등). 실행 중: ${by}. 마지막 상태를 확인해 주세요`;
+    case "timeout": return `<b>시간 초과</b> — ${ev.secs}초 안에 끝나지 않아서 강제로 멈췄어요 (무한루프나 데드락일 수 있어요). 실행 중: ${by}. 대기 체인과 BLOCKED 스레드를 확인해 주세요`;
   }
   return ev.kind;
 }
@@ -273,13 +251,13 @@ function render() {
   $("pos").textContent = `${idx + 1}/${view.length} · tick ${s.tick ?? "?"}`;
   $("desc").innerHTML = `<span class="kind">${ev.kind}</span>${describe(ev)}` +
     // 기록 재생으로 이 이벤트 시점에 gdb를 멈춤 (debug.html). icount가 없으면(기록 없이 돈 실행) 디버거 쪽에서 다시 실행을 제안함
-    ` <a class="dbg" target="_blank" href="debug.html?mode=threads&test=${encodeURIComponent(T.name)}${ev.ic != null ? "&ev=" + ev.i : ""}">${ev.ic != null ? "이 시점부터 디버그 ↗" : "디버거 ↗"}</a>`;
+    ` <a class="dbg" target="_blank" href="debug.html?mode=threads&test=${encodeURIComponent(T.name)}${ev.ic != null ? "&ev=" + ev.i : ""}">${ev.ic != null ? "이 시점부터 디버그" : "디버거"} <i class="ic i-link"></i></a>`;
   const locs = ev.locs || [];
   if (srcSel == null || srcSel.ev !== ev.i) srcSel = { ev: ev.i, k: locs.findIndex(l => l) };
   $("stack").innerHTML = "call stack: " + ev.stack.map((f, k) => locs[k]
     ? `<a data-k="${k}" class="${k === srcSel.k ? "sel" : ""}">${esc(f)} (${esc(locs[k].split("/").pop())})</a>` : esc(f)).join(" ← ");
   $("stack").querySelectorAll("a").forEach(a => a.onclick = () => { srcSel.k = +a.dataset.k; render(); });
-  $("viol").innerHTML = ev.viol.length ? `<div class="viol">${ev.viol.map(v => `<div>${v}</div>`).join("")}</div>` : "";
+  $("viol").innerHTML = ev.viol.length ? `<div class="viol">${ev.viol.map(v => `<div><i class="ic i-alert"></i><span>${v}</span></div>`).join("")}</div>` : "";
   showSource(locs[srcSel.k]);
 
   const th = s.threads, pv = b.threads;
@@ -337,7 +315,7 @@ function render() {
   const hasMl = Object.values(th).some(t => t.nice != null || t.rcpu != null);
   const rows = Object.keys(th).map(k => {
     const t = th[k], st = s.sleep.includes(+k) ? "SLEEP" : t.status;
-    return `<tr><td><span style="color:${color(+k)}">■</span> ${esc(t.name)}</td><td class="mono">${t.tid}</td><td class="st st-${st}">${st === "SLEEP" ? "BLOCKED(sleep)" : st}</td>
+    return `<tr><td><i class="ic i-dot" style="color:${color(+k)}"></i> ${esc(t.name)}</td><td class="mono">${t.tid}</td><td class="st st-${st}">${st === "SLEEP" ? "BLOCKED(sleep)" : st}</td>
       <td class="mono">${t.pri}</td><td class="mono">${t.base}</td><td class="mono">${t.lock ? t.lock + " (보유자 " + name(t.holder) + ")" : ""}</td><td class="mono">${(t.dons || []).map(name).join(", ")}</td>${hasMl ? `<td class="mono">${t.nice ?? ""}</td><td class="mono">${t.rcpu != null ? (t.rcpu / FP).toFixed(2) : ""}</td>` : ""}</tr>`;
   }).join("");
   $("table").innerHTML = `<table><tr><th>name</th><th>tid</th><th>status</th><th>priority</th><th>init_priority</th><th>wait_on_lock</th><th>donations</th>${
@@ -414,7 +392,7 @@ function mlBuild() {
     for (const pts of Object.values(data)) for (const p of pts) { if (p[1] < lo) lo = p[1]; if (p[1] > hi) hi = p[1]; }
     if (hi === lo) hi = lo + 1;
     const x = t => L + (t - t0) / (t1 - t0) * (W - L - R), y = v => 6 + (1 - (v - lo) / (hi - lo)) * (H - 22);
-    g.font = "11px system-ui"; g.fillStyle = css.getPropertyValue("--muted"); g.strokeStyle = css.getPropertyValue("--line");
+    g.font = "12px system-ui"; g.fillStyle = css.getPropertyValue("--muted"); g.strokeStyle = css.getPropertyValue("--line");
     g.fillText(String(+hi.toFixed(2)), 2, 12); g.fillText(String(+lo.toFixed(2)), 2, H - 16);
     g.fillText("tick " + t0, L, H - 3); g.fillText(String(t1), W - R - 30, H - 3);
     g.beginPath(); g.moveTo(L, 6); g.lineTo(L, H - 16); g.lineTo(W - R, H - 16); g.stroke();
@@ -430,9 +408,9 @@ function mlBuild() {
   draw($("ml-l"), load, () => getComputedStyle(document.documentElement).getPropertyValue("--accent"), 110);
   ml = { t0, t1, W, L, R };
   const n = Object.keys(series).length;
-  $("ml-note").textContent = `스레드 ${n}개 (idle 제외).` + (load.load.length ? "" : " load_avg 변수를 못 찾아 그래프 없음.") +
-    (metric === "rcpu" && !n ? " recent_cpu 필드를 못 찾음." : "") + (T.fp_scale ? ` 고정소수점 배율 ${T.fp_scale}(커널 getter로 확인)로 나눠 표시함. MLFQS 공식 검사 켜짐.`
-      : " 배율을 확인 못 해(getter 미구현 또는 값이 너무 작음) 16384(17.14)로 가정함. MLFQS 공식 검사는 꺼짐.");
+  $("ml-note").textContent = `스레드 ${n}개 (idle 제외).` + (load.load.length ? "" : " load_avg 변수를 찾지 못해 그래프가 없어요.") +
+    (metric === "rcpu" && !n ? " recent_cpu 필드를 찾지 못했어요." : "") + (T.fp_scale ? ` 고정소수점 배율 ${T.fp_scale}(커널 getter로 확인)로 나눠 표시해요. MLFQS 공식 검사를 켰어요.`
+      : " 배율을 확인하지 못해(getter 미구현 또는 값이 너무 작음) 16384(17.14)로 가정해요. MLFQS 공식 검사는 껐어요.");
 }
 function mlCursor(tick) {
   if (!ml) return;
@@ -456,7 +434,7 @@ function drawTimeline() {
     g.font = "12px system-ui"; g.textBaseline = "middle";
     ids.forEach((k, r) => {
       const y = r * rowH + 2;
-      g.fillStyle = css.getPropertyValue("--text"); g.fillText(T.threads[k].name, 4, y + rowH / 2);
+      g.fillStyle = css.getPropertyValue("--fg"); g.fillText(T.threads[k].name, 4, y + rowH / 2);
       view.forEach((ev, x) => {
         const st = stateOf(after(ev), k);
         if (!st) return;
@@ -470,7 +448,7 @@ function drawTimeline() {
   const g = cv.getContext("2d");
   g.drawImage(tlCache.off, 0, 0);
   g.scale(dpr, dpr);
-  g.fillStyle = css.getPropertyValue("--text");
+  g.fillStyle = css.getPropertyValue("--fg");
   g.fillRect(L + idx * step + step / 2 - 1, 0, 2, H);
   cv.onclick = e => { const x = e.offsetX - L; if (x >= 0) { idx = Math.floor(x / step); render(); } };
 }
@@ -516,7 +494,7 @@ function check(T) {
       // MLFQS 모드에선 donation을 안 하는 게 정상이라 donation 검사(이것과 아래 4번)를 건너뜀
       if (!T.mlfqs) for (const [w, h, id] of waitEdges(s)) {
         if (th[h] && th[h].status !== "DYING" && P(w) > th[h].pri)
-          v.push(`donation 누락: ${id} 기다리는 ${name(w)}(pri ${P(w)})가 holder ${name(h)}(pri ${th[h].pri})보다 높음`);
+          v.push(`donation 누락: ${id} 기다리는 ${name(w)}(pri ${P(w)})가 holder ${name(h)}(pri ${th[h].pri})보다 높아요`);
       }
       const knowDons = !(T.layout && !T.layout.donations);
       if (!T.mlfqs && knowDons) for (const k of Object.keys(th)) {
@@ -529,7 +507,7 @@ function check(T) {
         // 락 객체를 못 읽는 경우(테스트 함수가 끝나 스택의 락이 사라짐 등)는 holder를 믿을 수 없어서 뺌
         const stale = t.dons.filter(d => th[d] && (th[d].lock == null || s.sync[th[d].lock] && s.sync[th[d].lock].holder !== +k));
         if (stale.length)
-          v.push(`donation 미회수: ${name(+k)}의 donations에 ${stale.map(d => name(d)).join(", ")}가 남아 있는데 ${name(+k)}가 쥔 락을 기다리지 않음`);
+          v.push(`donation 미회수: ${name(+k)}의 donations에 ${stale.map(d => name(d)).join(", ")}가 남아 있는데 ${name(+k)}가 쥔 락을 기다리지 않아요`);
       }
     }
     // 1. 스케줄러가 가장 높은 priority를 골랐는지 (thread_launch 진입 시점: 고른 스레드는 이미 ready에서 빠짐)
@@ -537,7 +515,7 @@ function check(T) {
     if (ev.kind === "switch" && th[ev.target] && s.ready.length) {
       const best = s.ready.reduce((a, k) => P(k) > P(a) ? k : a, s.ready[0]);
       if (P(best) > P(ev.target))
-        v.push(`스케줄 선택 오류: ${name(ev.target)}(pri ${P(ev.target)})를 골랐는데 ready_list에 ${name(best)}(pri ${P(best)})가 있음`);
+        v.push(`스케줄 선택 오류: ${name(ev.target)}(pri ${P(ev.target)})를 골랐는데 ready_list에 ${name(best)}(pri ${P(best)})가 있어요`);
     }
     // 3. sema_up/cond_signal이 대기자 중 가장 높은 priority를 깨웠는지 (직전 스냅샷의 대기 리스트 기준)
     if (ev.kind === "unblock" && ev.stack[0] === "sema_up" && i > 0) {
@@ -547,7 +525,7 @@ function check(T) {
         if (!ws.includes(ev.target)) continue;
         const best = ws.reduce((a, k) => P(k) > P(a) ? k : a, ws[0]);
         if (P(best) > P(ev.target))
-          v.push(`깨우기 순서 오류: ${id}에서 ${name(ev.target)}(pri ${P(ev.target)})를 깨웠는데 ${name(best)}(pri ${P(best)})가 더 높음`);
+          v.push(`깨우기 순서 오류: ${id}에서 ${name(ev.target)}(pri ${P(ev.target)})를 깨웠는데 ${name(best)}(pri ${P(best)})가 더 높아요`);
       }
     }
   });
@@ -635,7 +613,7 @@ const perfKeys = p => ({ K: p.top, T: p.tick[0] ? p.tick[1] / p.tick[0] : 0, S: 
 function efficiency(T, fatal) {
   const p = T.perf, b = BASE[T.name];
   T.eff = null;
-  if (!p) return `<div class="note">효율 측정 없음 (REPLAY=0이거나 정상 종료가 아님)</div>`;
+  if (!p) return `<div class="note">효율을 측정하지 않았어요 (REPLAY=0이거나 정상 종료가 아니에요)</div>`;
   const cur = perfKeys(p), ref = b ? perfKeys(b) : null;
   const tickOk = ref && p.tick[0] >= TICK_MIN && b.tick[0] >= TICK_MIN;
   const ks = ref ? ["K", "T", "S"].filter(k => ref[k] && cur[k] && (k !== "T" || tickOk)) : [];
@@ -647,8 +625,8 @@ function efficiency(T, fatal) {
   const avg = s => s && s[0] ? s[1] / s[0] : null;
   return `<div class="score"><div class="big">${T.eff ?? "-"}</div><div><div class="gr">효율 · 기준 대비</div><ul>
     ${["K", "T", "S"].map(k => `<li>${L[k]}: ${cmp(cur[k], ref && ref[k])}${k === "T" ? ` · ${p.tick[0]}번${tickOk ? "" : ` (${TICK_MIN}번 미만이라 점수 제외)`}` : ""}</li>`).join("")}</ul></div></div>
-    <div class="note" style="margin-top:0">${fatal ? "정확성 실패라 효율 점수 없음. " : !b ? "이 테스트의 기준이 없음 (BASELINE=1 tools/thread-viz/run.sh로 저장). " : ""}
-    명령어 수 = 그 스레드가 진입~복귀 사이에 직접 실행한 명령어 (막혀서 다른 스레드가 돈 시간, 인터럽트 처리는 뺌). 기록/재생이라 같은 코드면 거의 같은 값이 나옴.</div>
+    <div class="note" style="margin-top:0">${fatal ? "정확성 실패라 효율 점수가 없어요. " : !b ? "이 테스트의 기준이 없어요 (BASELINE=1 tools/thread-viz/run.sh로 저장해요). " : ""}
+    명령어 수 = 그 스레드가 진입~복귀 사이에 직접 실행한 명령어 (막혀서 다른 스레드가 돈 시간, 인터럽트 처리는 뺐어요). 기록/재생이라 같은 코드면 거의 같은 값이 나와요.</div>
     <table><tr><th>함수</th><th>호출 수</th><th>평균 명령어 (기준 → 지금)</th><th>최대</th></tr>${fns.map(f => `<tr><td><code>${f}</code></td>
       <td class="mono">${p.calls[f][0]}</td><td class="mono">${cmp(avg(p.calls[f]), b && avg(b.calls[f]))}</td><td class="mono">${n(p.calls[f][2])}</td></tr>`).join("")}</table>`;
 }
@@ -688,14 +666,14 @@ function complexity(T) {
   if (!rows.length) return "";
   const bad = rows.filter(([fn, r]) => r.cls > (CX_MAX[fn] ?? 1));
   T.cx = { bad: bad.length, total: rows.length };
-  return `<div class="score"><div class="big">${bad.length ? "❌" : "✅"}</div><div><div class="gr">복잡도 판정 · 절대 기준</div>
-    <ul><li>${bad.length ? `비효율 ${bad.length}개: ${bad.map(r => `<code>${r[0]}</code>`).join(", ")}` : `판정한 ${rows.length}개 함수 모두 허용 범위 안`}</li></ul></div></div>
+  return `<div class="score"><div class="big">${bad.length ? '<i class="ic i-x bad"></i>' : '<i class="ic i-check ok"></i>'}</div><div><div class="gr">복잡도 판정 · 절대 기준</div>
+    <ul><li>${bad.length ? `비효율 ${bad.length}개: ${bad.map(r => `<code>${r[0]}</code>`).join(", ")}` : `판정한 ${rows.length}개 함수 모두 허용 범위 안이에요`}</li></ul></div></div>
     <table><tr><th>함수</th><th>길이에 따른 비용</th><th>허용 상한</th><th>길이 0 비용</th><th>길이당 증가</th><th>길이 ${rows[0][1].nmax}까지 증가율</th><th>판정</th></tr>${rows.map(([fn, r]) => {
       const mx = CX_MAX[fn] ?? 1, ok = r.cls <= mx;
       return `<tr><td><code>${fn}</code></td><td>${CX_NAME[r.cls]}</td><td>${CX_NAME[mx]}</td><td class="mono">${Math.round(r.base).toLocaleString()}</td>
-      <td class="mono">${r.slope.toFixed(1)}</td><td class="mono">${r.growth < 0 ? "" : "+"}${(r.growth * 100).toFixed(0)}%</td><td>${ok ? "✅" : "❌"}</td></tr>`;
+      <td class="mono">${r.slope.toFixed(1)}</td><td class="mono">${r.growth < 0 ? "" : "+"}${(r.growth * 100).toFixed(0)}%</td><td>${ok ? '<i class="ic i-check" style="color:var(--ok)" aria-label="통과"></i>' : '<i class="ic i-x" style="color:var(--err)" aria-label="비효율"></i>'}</td></tr>`;
     }).join("")}</table>
-    <div class="note">호출 시작 때의 리스트 길이(timer는 sleep_list, 동기화는 기다리는 줄, thread_*는 ready_list)와 명령어 수의 관계로 판정함. 증가율 25% 미만이면 상수, 그 이상이면 선형, 증가가 길이의 1.5제곱보다 가파르면 선형 초과임. 선형 초과는 n log n(list_sort)과 구분이 안 될 수 있음.</div>`;
+    <div class="note">호출 시작 때의 리스트 길이(timer는 sleep_list, 동기화는 기다리는 줄, thread_*는 ready_list)와 명령어 수의 관계로 판정해요. 증가율 25% 미만이면 상수, 그 이상이면 선형, 증가가 길이의 1.5제곱보다 가파르면 선형 초과예요. 선형 초과는 n log n(list_sort)과 구분되지 않을 수 있어요.</div>`;
 }
 
 function metrics(T) {
@@ -754,7 +732,7 @@ function metrics(T) {
   const sleepYield = Object.values(per).reduce((a, p) => a + p.sleepYield, 0);
   const avg = a => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(1) : "-";
   const rows = Object.keys(per).filter(k => T.threads[k]).map(k => { const p = per[k];
-    return `<tr><td><span style="color:${color(+k)}">■</span> ${name(+k)}</td><td class="mono">${p.run}</td><td class="mono">${p.ready}</td>
+    return `<tr><td><i class="ic i-dot" style="color:${color(+k)}"></i> ${name(+k)}</td><td class="mono">${p.run}</td><td class="mono">${p.ready}</td>
       <td class="mono">${p.lock}</td><td class="mono">${p.sleep}</td><td class="mono">${p.sw}</td>
       <td class="mono">${avg(p.lat)} / ${p.lat.length ? Math.max(...p.lat) : "-"}</td><td class="mono">${p.latEv.length ? Math.max(...p.latEv) : "-"}</td><td class="mono">${p.sleepYield || ""}</td></tr>`; }).join("");
   // 재미용 점수: 정확성을 먼저 보고(PASS가 아니면 F, 0점), PASS인 테스트만 효율 감점. 채점 기준(.ck)과는 무관함
@@ -785,11 +763,11 @@ function metrics(T) {
   T.score = { score, grade };
   return `<div class="score"><div class="big">${score}</div><div><div class="gr">${grade} · ${cm}</div>
     <ul>${items.length ? items.map(([l, v]) => `<li>${l}: -${v}</li>`).join("") : "<li>감점 없음</li>"}</ul></div></div>
-    <div class="note" style="margin-top:0">재미용 점수임. 실제 채점(.ck)과 무관함.</div>
+    <div class="note" style="margin-top:0">재미용 점수예요. 실제 채점(.ck)과는 관계없어요.</div>
     <div class="chips">
     ${chip(total, "테스트 소요 tick")}${chip(sw, "컨텍스트 스위치")}
     ${chip(ySlice, "yield: 타임슬라이스")}${chip(yPre, "yield: 선점")}${yOther ? chip(yOther, "yield: 기타") : ""}
-    ${chip(yEmpty, "빈 ready_list에서 yield (원본 thread_tick도 함, 감점 안 함)")}
+    ${chip(yEmpty, "빈 ready_list에서 yield (원본 thread_tick도 해서 감점하지 않아요)")}
     ${m ? chip(`${m[1]} / ${m[2]}`, "idle / kernel tick (부팅 포함)") : ""}
     ${chip(sleepYield, "timer_sleep 중 yield (busy wait면 > 0)")}</div>
     <table><tr><th>스레드</th><th>실행 tick</th><th>ready 대기 tick</th><th>락 대기 tick</th><th>sleep tick</th><th>스위치 in</th><th>선점 지연 tick 평균/최대 (unblock→실행)</th><th>선점 지연 최대 (다른 스레드 이벤트 수)</th><th>sleep 중 yield</th></tr>${rows}</table>
@@ -797,7 +775,7 @@ function metrics(T) {
       !T.layout.donations ? " · donations 필드 없음 → donation 그래프·4번 검사 생략" : ""}</div>` : ""}
     ${efficiency(T, fatal)}
     ${complexity(T)}
-    <div class="note">tick = 10ms 타이머 단위. 한 tick 안의 차이는 "다른 스레드 이벤트 수" 열로 봄. 같은 테스트를 코드 수정 전후로 비교할 때 의미 있음.</div>`;
+    <div class="note">tick = 10ms 타이머 단위. 한 tick 안의 차이는 "다른 스레드 이벤트 수" 열로 봐요. 같은 테스트를 코드 수정 전후로 비교할 때 의미가 있어요.</div>`;
 }
 
 function resultOf(T) {
@@ -816,7 +794,7 @@ function rebuild(keep) {
   view = T.events.map((e, i) => ({ ...e, i })).filter(e => !isNoise(e));
   $("slider").max = view.length - 1;
   $("events").innerHTML = view.map((e, k) =>
-    `<div data-k="${k}"${e.viol.length ? ' class="bad"' : ""}><span class="t mono">${e.snap.tick ?? ""}</span><span>${short(e)}</span></div>`).join("");
+    `<div data-k="${k}"${e.viol.length ? ' class="bad"' : ""}><span class="t mono">${e.snap.tick ?? ""}</span>${e.viol.length ? '<i class="ic i-alert"></i>' : ""}<span>${short(e)}</span></div>`).join("");
   $("events").querySelectorAll("div").forEach(d => d.onclick = () => { idx = +d.dataset.k; render(); });
   const f = view.findIndex(e => e.i >= old);
   idx = keep ? (f >= 0 ? f : view.length - 1) : 0;   // 필터로 뒤쪽이 다 숨겨지면 마지막으로
@@ -830,15 +808,15 @@ function load(name) {
   mlBuild();
   const [cls, txt] = resultOf(T);
   $("res").className = "res " + cls; $("res").textContent = txt;
-  $("ck").textContent = T.result ? T.result.detail : "채점 결과 없음 (run.sh로 다시 수집하면 생김)";
+  $("ck").textContent = T.result ? T.result.detail : "채점 결과가 없어요. run.sh로 다시 수집하면 생겨요";
   $("tab-ck").classList.toggle("alert", !!(T.result && !T.result.pass));
   const nb = T.events.filter(e => e.viol.length).length;
-  $("nextbad").textContent = nb ? `⚠ 다음 이상 (${nb})` : "✓ 이상 없음";
+  $("nextbad").innerHTML = nb ? `<i class="ic i-alert"></i>다음 이상 (${nb})` : '<i class="ic i-check"></i>이상 없음';
   $("nextbad").disabled = !nb;
   // 채점은 트레이스 없이 따로 돌린 출력 기준. 트레이스 실행 출력이 다르면(gdb 부하로 tick이 밀림 등) 같이 보여줌
   const body = s => (s || "").split("\n").filter(l => /^\(/.test(l)).join("\n");
   $("out").textContent = (T.output || "") + (T.trace_output && body(T.trace_output) !== body(T.output)
-    ? "\n\n--- 트레이스 실행 출력 (gdb 부하로 타이밍이 밀려 채점용 실행과 다름. 위가 채점 기준) ---\n" + T.trace_output : "");
+    ? "\n\n--- 트레이스 실행 출력 (gdb 부하로 타이밍이 밀려 채점용 실행과 달라요. 위가 채점 기준이에요) ---\n" + T.trace_output : "");
   try { localStorage.setItem("pv-test", name); } catch (e) {}
   rebuild(false);
 }
@@ -853,10 +831,10 @@ document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => showTab
 new ResizeObserver(() => document.documentElement.style.setProperty("--hh", document.querySelector("header").offsetHeight + "px"))
   .observe(document.querySelector("header"));
 
-function stop() { clearInterval(timer); timer = null; $("play").textContent = "▶ 재생"; }
+function stop() { clearInterval(timer); timer = null; $("play").innerHTML = '<i class="ic i-play"></i>재생'; }
 function play() {
   if (timer) return stop();
-  $("play").textContent = "⏸ 정지";
+  $("play").innerHTML = '<i class="ic i-pause"></i>정지';
   timer = setInterval(() => { if (idx >= view.length - 1) return stop(); idx++; render(); }, +$("speed").value);
 }
 
@@ -867,17 +845,17 @@ async function pollProgress() {
   const el = $("prog");
   if (p.running) {
     const pct = p.total ? Math.round(p.done / p.total * 100) : 0, sec = Math.round(Date.now() / 1000 - p.started);
-    const ic = r => r.result === "PASS" ? "✅" : r.result === "FAIL" ? "❌" : "❔";
+    const ic = r => `<i class="ic i-${r.result === "PASS" ? "check" : r.result === "FAIL" ? "x" : "help"}"></i>`;
     el.style.display = "block";
     el.innerHTML = `<b>트레이스 수집 중</b> ${p.done}/${p.total} (${pct}%) · 지금: <b>${esc(p.current)}</b> · 경과 ${sec}초
-      <div class="bar"><i style="width:${pct}%"></i></div>
-      <div class="done">${p.results.map(r => `<span>${ic(r)} ${esc(r.test)}${{ timeout: " ⏱", panic: " 💥", aborted: " ⛔", attach_failed: " 🔌연결 실패" }[r.status] || ""}</span>`).join("")}</div>`;
+      <div class="track"><i style="width:${pct}%"></i></div>
+      <div class="done">${p.results.map(r => `<span>${ic(r)} ${esc(r.test)}${{ timeout: " · 시간 초과", panic: " · PANIC", aborted: " · 중단됨", attach_failed: " · 연결 실패" }[r.status] || ""}</span>`).join("")}</div>`;
   } else if (p.finished && String(p.finished) !== String(window.TRACES_STAMP)) {
     // 같은 스탬프로는 한 번만 새로고침 (data.js 생성 실패 시 무한 새로고침 방지)
     let last = null; try { last = sessionStorage.getItem("pv-reloaded"); } catch (e) {}
     if (last === String(p.finished)) { el.style.display = "none"; return; }
     try { sessionStorage.setItem("pv-reloaded", String(p.finished)); } catch (e) {}
-    el.style.display = "block"; el.innerHTML = "<b>수집 완료</b> — 새 결과로 새로고침함";
+    el.style.display = "block"; el.innerHTML = "<b>수집 완료</b> — 새 결과로 새로고침해요";
     location.reload();
   } else el.style.display = "none";
 }
@@ -888,12 +866,13 @@ const broken = Object.keys(TR).filter(n => !(TR[n].events || []).length);
 const names = Object.keys(TR).filter(n => !broken.includes(n));
 if (!names.length) {
   document.querySelector("main").innerHTML = '<div class="panel">' + (broken.length
-    ? `트레이스 수집에 실패함 (${esc(broken.join(", "))}). tools/thread-viz/run.sh를 다시 실행할 것.` : "data.js가 없음. tools/thread-viz/run.sh 먼저 실행할 것.") + "</div>";
+    ? `트레이스를 수집하지 못했어요 (${esc(broken.join(", "))}). tools/thread-viz/run.sh를 다시 실행해 주세요.` : "data.js가 없어요. tools/thread-viz/run.sh를 먼저 실행해 주세요.") + "</div>";
 } else {
   const effAvg = () => { const e = names.map(n => TR[n].eff).filter(v => v != null); return e.length ? ` · 효율 평균 ${(e.reduce((a, x) => a + x, 0) / e.length).toFixed(1)} (${e.length}개)` : ""; };
   for (const n of names) { T = TR[n]; FP = T.fp_scale || 1 << 14; expand(T); check(T); metrics(T); }   // 목록에 점수를 붙이려고 전부 미리 계산
-  const icon = n => { const c = resultOf(TR[n])[0]; return c === "pass" ? "✅" : c === "fail" ? "❌" : "❔"; };
-  $("test").innerHTML = names.map(n => `<option value="${n}">${icon(n)} ${n} — ${TR[n].score.score}점 ${TR[n].score.grade}${TR[n].eff != null ? " · 효율 " + TR[n].eff : ""}</option>`).join("");
+  // option 안에는 아이콘을 못 넣어서 글자로 표시
+  const icon = n => { const c = resultOf(TR[n])[0]; return c === "pass" ? "PASS ·" : c === "fail" ? "FAIL ·" : "채점 없음 ·"; };
+  $("test").innerHTML = optgroups(names, n => `<option value="${n}">${icon(n)} ${n} — ${TR[n].score.score}점 ${TR[n].score.grade}${TR[n].eff != null ? " · 효율 " + TR[n].eff : ""}</option>`);
   const nPass = names.filter(n => TR[n].result && TR[n].result.pass).length;
   $("avg").textContent = `PASS ${nPass}/${names.length} · 평균 ${(names.reduce((a, n) => a + TR[n].score.score, 0) / names.length).toFixed(1)}점` + effAvg() +
     (broken.length ? ` · 수집 실패 ${broken.length}개(${broken.join(", ")}) — run.sh 다시 실행` : "");

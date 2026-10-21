@@ -11,7 +11,7 @@
 #       Project 3: tools/thread-viz/vtraces/<test>.json, vdata.js -> uprog.html?vm
 set -u
 # 동시 실행 관리에 wait -n -p를 씀 (bash 5.1 이상. 정글 Docker 이미지 ubuntu 22.04는 5.1)
-if (( BASH_VERSINFO[0] * 100 + BASH_VERSINFO[1] < 501 )); then echo "bash 5.1 이상이 필요함 (지금 $BASH_VERSION)"; exit 1; fi
+if (( BASH_VERSINFO[0] * 100 + BASH_VERSINFO[1] < 501 )); then echo "bash 5.1 이상이 필요해요 (지금 $BASH_VERSION)"; exit 1; fi
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PINTOS="$HERE/../../pintos"
 export PATH="$PATH:$PINTOS/utils"
@@ -34,9 +34,9 @@ set -- ${args[@]+"${args[@]}"}
 if [ "$skip" != 1 ]; then
     python3 "$HERE/update.py" --auto; rc=$?
     [ "$rc" = 10 ] && THREAD_VIZ_UPDATED=1 exec "$HERE/run.sh" --no-update "$@"
-    [ "$rc" != 0 ] && echo "업데이트 실패 (위 메시지 참고). 지금 버전으로 계속함"
+    [ "$rc" != 0 ] && echo "업데이트하지 못했어요 (위 메시지 참고). 지금 버전으로 계속해요"
 elif [ -z "${THREAD_VIZ_UPDATED:-}" ]; then
-    echo "[thread-viz] v$(cat "$HERE/VERSION" 2>/dev/null || echo '?') - 업데이트 확인 건너뜀"
+    echo "[thread-viz] v$(cat "$HERE/VERSION" 2>/dev/null || echo '?') - 업데이트 확인을 건너뛰었어요"
 fi
 
 # 뷰어 서버(server.py): 이미 떠 있으면 재사용, 없으면 백그라운드로 띄움. 수집 중에도 진행도를 볼 수 있게 먼저 띄움
@@ -56,7 +56,7 @@ start_server() {
         for _ in 1 2 3 4 5 6 7 8 9 10; do ok && break; sleep 0.3; done
     fi
     # 포트를 다른 프로그램(VS Code 포트 포워딩 등)이 쓰고 있으면 뷰어가 안 뜨므로 알려줌
-    ok || echo "경고: 포트 $PORT에서 thread-viz 서버가 응답하지 않음. 다른 프로그램이 쓰는 중일 수 있음. VIEW_PORT=9000 처럼 바꿔서 다시 실행할 것"
+    ok || echo "경고: 포트 $PORT에서 thread-viz 서버가 응답하지 않아요. 다른 프로그램이 쓰는 중일 수 있어요. VIEW_PORT=9000 처럼 바꿔서 다시 실행해 주세요"
 }
 
 # 인자 없이 실행: 서버만 띄우고 런처 페이지(index.html)를 엶. 거기서 Project 1/2와 테스트를 골라 실행함
@@ -65,7 +65,7 @@ if [ $# -eq 0 ]; then
     URL="http://localhost:$PORT/index.html"
     # VS Code devcontainer는 BROWSER를 호스트 브라우저를 여는 도우미로 설정해 둠. 열 수 없으면 주소만 보여줌
     [ "${NO_OPEN:-0}" = 1 ] || python3 -c 'import sys,webbrowser; webbrowser.open(sys.argv[1])' "$URL" >/dev/null 2>&1 || true
-    echo "브라우저에서 테스트를 고르고 실행할 수 있습니다: $URL"
+    echo "브라우저에서 테스트를 고르고 실행할 수 있어요: $URL"
     echo "(터미널에서 바로 돌리려면: tools/thread-viz/run.sh threads | userprog | vm | <테스트 이름...>)"
     exit 0
 fi
@@ -85,7 +85,7 @@ elif [ $# -gt 0 ]; then
     n=0; v=0; for t in "$@"; do is_uprog "$t" && n=$((n + 1)); is_vm "$t" && v=$((v + 1)); done
     [ $n -eq $# ] && MODE=userprog
     [ $v -eq $# ] && MODE=vm
-    [ $MODE = threads ] && [ $((n + v)) -gt 0 ] && { echo "Project 1/2/3 테스트는 따로 돌릴 것 (Project 2 테스트를 VM 빌드로 돌리려면 run.sh vm <이름>)"; exit 1; }
+    [ $MODE = threads ] && [ $((n + v)) -gt 0 ] && { echo "Project 1/2/3 테스트는 따로 돌려 주세요 (Project 2 테스트를 VM 빌드로 돌리려면 run.sh vm <이름>)"; exit 1; }
 fi
 if [ $MODE = userprog ]; then
     KDIR="$PINTOS/userprog"; OUTDIR="$HERE/utraces"; TRACER=uprog.py; DATA=udata.js; PAGE=uprog.html
@@ -121,8 +121,8 @@ rm -f "$BUILD/threads/kernel.lds.s"
 if ! make -s $MFLAGS -C "$KDIR" ${WARN[@]+"${WARN[@]}"} > "$HERE/traces/build.log" 2>&1; then
     grep -E "error|Error" "$HERE/traces/build.log" | head -20
     grep -q "undefined reference to \`_end_bss'" "$HERE/traces/build.log" \
-        && echo "링커 스크립트(build/threads/kernel.lds.s) 생성 실패. 'cd pintos/threads && make clean && make' 후 다시 실행할 것"
-    echo "빌드 실패: 위 컴파일 에러를 먼저 고칠 것 (전체 로그: tools/thread-viz/traces/build.log)"; exit 1
+        && echo "링커 스크립트(build/threads/kernel.lds.s)를 만들지 못했어요. 'cd pintos/threads && make clean && make' 후 다시 실행해 주세요"
+    echo "빌드하지 못했어요. 위 컴파일 에러를 먼저 고쳐 주세요 (전체 로그: tools/thread-viz/traces/build.log)"; exit 1
 fi
 
 if [ $MODE != threads ]; then
@@ -146,7 +146,7 @@ fi
 tests=("$@")
 [ ${#tests[@]} -eq 0 ] && tests=("${all[@]}")
 for t in "${tests[@]}"; do
-    [[ $t =~ ^[a-z0-9-]+$ ]] || { echo "테스트 이름이 이상함: $t"; exit 1; }
+    [[ $t =~ ^[a-z0-9-]+$ ]] || { echo "테스트 이름이 올바르지 않아요: $t"; exit 1; }
 done
 
 # 트레이스가 없거나, 예전 형식(status 없음)이거나, 깨졌거나, gdb 연결에 실패했거나, 채점 결과가 없는 테스트는 자동으로 같이 수집함
@@ -161,11 +161,11 @@ for t in "${all[@]}"; do   # AUTO=0이면 자동 수집 안 함 (지정한 테�
         tests+=("$t"); auto+=("$t")
     fi
 done
-[ -n "${auto+x}" ] && echo "트레이스 없음/오래됨 -> 자동 수집: ${auto[*]}"
+[ -n "${auto+x}" ] && echo "트레이스가 없거나 오래돼서 자동으로 수집해요: ${auto[*]}"
 rm -f "$OUTDIR"/*.tmp
 
 if [ $MODE != threads ]; then
-    for t in "${tests[@]}"; do [ -n "${TPATH[$t]+x}" ] || { echo "$([ $MODE = vm ] && echo "VM 빌드" || echo "Project 2")의 테스트가 아님: $t"; exit 1; }; done
+    for t in "${tests[@]}"; do [ -n "${TPATH[$t]+x}" ] || { echo "$([ $MODE = vm ] && echo "VM 빌드" || echo "Project 2")의 테스트가 아니에요: $t"; exit 1; }; done
     # make -n -W os.dsk: 결과 파일이 이미 있어도 테스트를 다시 돌릴 명령을 출력함 (-n이라 실제로는 안 돌림).
     # 줄 끝의 리다이렉션(< /dev/null 2> ... > ...)은 떼고, 테스트별 경로는 .errors 파일 이름으로 찾음
     outs=(); for t in "${tests[@]}"; do outs+=("${TPATH[$t]}.output"); done
@@ -176,18 +176,18 @@ if [ $MODE != threads ]; then
     # 테스트에 넣는 유저 프로그램(-p 원본:이름)을 미리 빌드함
     progs=(); prev=""
     for t in "${tests[@]}"; do
-        [ -n "${TCMD[$t]+x}" ] || { echo "make에서 $t 실행 명령을 못 얻음"; exit 1; }
+        [ -n "${TCMD[$t]+x}" ] || { echo "make에서 $t 실행 명령을 얻지 못했어요"; exit 1; }
         for w in ${TCMD[$t]}; do [[ $prev == -p ]] && progs+=("${w%%:*}"); prev=$w; done
     done
     if ! (cd "$BUILD" && make -s "${progs[@]}" ${WARN[@]+"${WARN[@]}"}) >> "$HERE/traces/build.log" 2>&1; then
         grep -E "error|Error" "$HERE/traces/build.log" | tail -20
-        echo "유저 프로그램 빌드 실패 (전체 로그: tools/thread-viz/traces/build.log)"; exit 1
+        echo "유저 프로그램을 빌드하지 못했어요 (전체 로그: tools/thread-viz/traces/build.log)"; exit 1
     fi
 fi
 
 start_server
 URL="http://localhost:$PORT/$PAGE"
-echo "진행 상황은 여기서 실시간으로 볼 수 있습니다: $URL"
+echo "진행 상황은 여기서 실시간으로 볼 수 있어요: $URL"
 
 # 뷰어가 1초마다 읽는 진행 상태 파일 (테스트 이름은 위에서 [a-z0-9-]만 허용해서 그대로 넣어도 JSON이 안 깨짐)
 STARTED=$(date +%s); RESULTS=""; DONE=0; FINISHED=0
@@ -210,7 +210,7 @@ for f in sorted(os.listdir(d)):
         try:
             data[f[:-5]] = json.load(open(os.path.join(d, f)))
         except ValueError:
-            print("경고: 깨진 트레이스 건너뜀:", f)
+            print("경고: 깨진 트레이스를 건너뛰었어요:", f)
 read = lambda p: open(p, errors="replace").read() if os.path.exists(p) else None
 for name in data:
     data[name]["output"] = read(os.path.join(d, name + ".output")) or ""
@@ -234,7 +234,7 @@ cleanup() {
     [ "$FINISHED" = 1 ] && return
     for j in $(jobs -p); do kill_tree "$j"; done   # 테스트 작업 아래의 timeout/pintos/QEMU/gdb까지 끔
     merge_data >/dev/null 2>&1 && progress false "" "$STAMP" || progress false "" null
-    echo "중단됨. 지금까지 수집한 트레이스를 뷰어에 반영함: $URL"
+    echo "중단했어요. 지금까지 수집한 트레이스를 뷰어에 반영했어요: $URL"
 }
 trap cleanup EXIT
 # Ctrl-C: 바로 끝내지 않고 중단 파일을 만들어 trace.py가 지금까지의 트레이스를 저장하게 한 뒤 종료함
@@ -356,7 +356,7 @@ for ((s = 0; s < JOBS; s++)); do
     p=$((GDB_BASE + s))
     for _ in $(seq 20); do port_listening $p || break; sleep 0.5; stop_if_interrupted; done
     if port_listening $p; then
-        echo "gdb 포트 $p를 다른 프로그램이 쓰는 중임 (다른 pintos --gdb, 또는 VS Code가 컨테이너 포트를 포워딩한 것). 끄거나 GDB_BASE로 다른 포트를 줄 것"
+        echo "gdb 포트 $p를 다른 프로그램이 쓰는 중이에요 (다른 pintos --gdb, 또는 VS Code가 컨테이너 포트를 포워딩한 것). 끄거나 GDB_BASE로 다른 포트를 지정해 주세요"
         exit 1
     fi
 done
@@ -384,8 +384,8 @@ while [ $next -lt ${#tests[@]} ] || [ ${#test_of[@]} -gt 0 ]; do
     if [ $LAYOUT_SHOWN = 0 ]; then grep '^trace layout' "$sum"; LAYOUT_SHOWN=1; fi
     grep '^trace' "$sum" | grep -v '^trace layout'
     echo "   $res"
-    [ "$st" = attach_failed ] && echo "   gdb 연결 실패: 다음 실행 때 자동으로 다시 수집함"
-    [ "$st" = none ] && { echo "   트레이스 실패. gdb 출력 끝부분 (전체: $OUTDIR/$t.gdb):"; tail -4 "$OUTDIR/$t.gdb" | sed 's/^/     /'; }
+    [ "$st" = attach_failed ] && echo "   gdb 연결 실패: 다음 실행 때 자동으로 다시 수집해요"
+    [ "$st" = none ] && { echo "   트레이스를 수집하지 못했어요. gdb 출력 끝부분 (전체: $OUTDIR/$t.gdb):"; tail -4 "$OUTDIR/$t.gdb" | sed 's/^/     /'; }
     rm -f "$sum"
     DONE=$((DONE + 1))
     RESULTS="$RESULTS${RESULTS:+,}{\"test\":\"$t\",\"result\":\"$res\",\"status\":\"$st\"}"
@@ -417,12 +417,12 @@ for t in tests:
         base[t] = d["perf"]
 with open(out, "w") as fp:
     fp.write("window.BASELINE = " + json.dumps(base, sort_keys=True) + ";\n")
-print("baseline.js: %d개 테스트 기준 저장" % len(base))
+print("baseline.js: 테스트 %d개의 기준을 저장했어요" % len(base))
 EOF
 fi
 
 progress false "" "$STAMP"
 FINISHED=1
 echo
-echo "검사 완료. 브라우저에서 여기로 접속하면 볼 수 있습니다: $URL"
+echo "검사를 마쳤어요. 브라우저에서 여기로 접속하면 볼 수 있어요: $URL"
 echo "(서버 종료: pkill -f \"server.py $PORT\")"

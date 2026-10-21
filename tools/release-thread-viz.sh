@@ -6,12 +6,12 @@ set -euo pipefail
 REPO="${THREAD_VIZ_REPO:-NARi3040/Pintos-Tool}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 VER="$(tr -d '[:space:]' < "$HERE/tools/thread-viz/VERSION")"
-[[ $VER =~ ^[0-9]+$ ]] || { echo "VERSION이 정수가 아님: $VER"; exit 1; }
+[[ $VER =~ ^[0-9]+$ ]] || { echo "VERSION이 정수가 아니에요: $VER"; exit 1; }
 OUT="$(mktemp -d)"; trap 'rm -rf "$OUT"' EXIT
 cd "$HERE"
 # 실행 결과물(traces, utraces, vtraces, data.js, udata.js, vdata.js, progress.json)은 빼고 도구 파일만 담음. 디렉터리 항목 없이 파일만
 tar -czf "$OUT/thread-viz.tar.gz" --owner=0 --group=0 \
-    tools/thread-viz/{run.sh,update.py,bench.py,trace.py,viewer.html,uprog.py,uprog.html,server.py,index.html,debug.py,debug.html,README.md,baseline.js,VERSION,.gitattributes} \
+    tools/thread-viz/{run.sh,update.py,bench.py,trace.py,viewer.html,uprog.py,uprog.html,server.py,index.html,ui.css,debug.py,debug.html,README.md,baseline.js,VERSION,.gitattributes} \
     tools/thread-viz/bin/qemu-system-x86_64 \
     tools/thread-viz/bench/bench-*.{c,ck} \
     --transform 's#^LICENSE$#tools/thread-viz/LICENSE#' LICENSE
@@ -20,4 +20,4 @@ tar -czf "$OUT/thread-viz.tar.gz" --owner=0 --group=0 \
 python3 -c 'import json,sys; print(json.dumps({"version": int(sys.argv[1]), "notes": sys.argv[2]}, ensure_ascii=False))' "$VER" "${1:-thread-viz v$VER}" > "$OUT/latest.json"
 gh release create "v$VER" "$OUT/thread-viz.tar.gz" "$OUT/thread-viz.tar.gz.sha256" "$OUT/latest.json" \
     --repo "$REPO" --title "thread-viz v$VER" --notes "${1:-thread-viz v$VER}"
-echo "배포함: https://github.com/$REPO/releases/tag/v$VER"
+echo "배포했어요: https://github.com/$REPO/releases/tag/v$VER"

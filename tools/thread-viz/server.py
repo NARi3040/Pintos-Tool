@@ -123,7 +123,7 @@ class Handler(SimpleHTTPRequestHandler):
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
         if self.client_address[0] in LOCAL and host in ("localhost", "127.0.0.1", "::1"):
             return True
-        self.reply(403, {"error": "localhost에서만 쓸 수 있음"})
+        self.reply(403, {"error": "이 컴퓨터에서 localhost 주소로 연 페이지에서만 쓸 수 있어요"})
         return False
 
     def do_GET(self):
@@ -146,14 +146,14 @@ class Handler(SimpleHTTPRequestHandler):
         # 다른 사이트의 페이지가 localhost로 요청을 보내 실행시키지 못하게 막음. 이 헤더가 붙은 교차 출처 요청은
         # 브라우저가 사전 요청(preflight)부터 보내는데, 서버가 CORS를 허용하지 않으니 본 요청이 안 옴
         if self.headers.get("X-Thread-Viz") != "1":
-            return self.reply(403, {"error": "forbidden"})
+            return self.reply(403, {"error": "이 페이지에서 보낸 요청만 받아요"})
         if self.path.startswith("/api/debug/") and not self.local_only():
             return
         try:
             n = int(self.headers.get("Content-Length") or 0)
             req = json.loads(self.rfile.read(min(n, 65536)) or b"{}")
         except ValueError:
-            return self.reply(400, {"error": "잘못된 요청"})
+            return self.reply(400, {"error": "요청 형식이 맞지 않아요"})
         if self.path.startswith("/api/debug/"):
             if self.path == "/api/debug/step" and req.get("what") == "interrupt":
                 return self.debug_post(req)   # 멈춤은 오래 걸리는 동작 중에도 바로 가야 함
@@ -164,11 +164,11 @@ class Handler(SimpleHTTPRequestHandler):
                 if proc is not None and proc.poll() is None:
                     proc.send_signal(signal.SIGINT)
                     return self.reply(200, {"ok": True})
-                return self.reply(409, {"error": "이 페이지에서 시작한 실행이 없음 (터미널에서 돌린 것은 터미널에서 Ctrl-C)"})
+                return self.reply(409, {"error": "이 페이지에서 시작한 실행이 없어요. 터미널에서 돌린 실행은 그 터미널에서 Ctrl-C로 멈춰 주세요"})
             if self.path != "/api/run":
-                return self.reply(404, {"error": "없는 API"})
+                return self.reply(404, {"error": "없는 API예요"})
             if running():
-                return self.reply(409, {"error": "이미 실행 중임. 끝나거나 중지한 뒤 다시 할 것"})
+                return self.reply(409, {"error": "이미 실행 중이에요. 끝나거나 중지한 뒤 다시 실행해 주세요"})
             with dlock:   # 다시 실행하면 기록 파일이 바뀌므로 열려 있던 디버거는 닫음
                 if dbg is not None:
                     dbg.close()
@@ -177,7 +177,7 @@ class Handler(SimpleHTTPRequestHandler):
             names = req.get("tests") or []
             if mode not in ("threads", "userprog", "vm") or not isinstance(names, list) \
                     or not all(isinstance(t, str) and NAME.match(t) for t in names):
-                return self.reply(400, {"error": "잘못된 요청"})
+                return self.reply(400, {"error": "요청 형식이 맞지 않아요"})
             # 테스트를 안 고르면 그 모드 전체. 모드를 앞에 붙여서 vm 모드의 args-single 같은 이름도 VM 빌드로 돌게 함.
             # 업데이트 확인은 서버를 띄울 때 이미 했으므로 건너뜀
             args = [os.path.join(HERE, "run.sh"), "--no-update", mode] + names
@@ -202,14 +202,14 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if u.path == "/api/debug/source":
                 text = debug.source(q.get("path", [""])[0])
-                return self.reply(200, {"text": text}) if text is not None else self.reply(404, {"error": "소스 없음"})
+                return self.reply(200, {"text": text}) if text is not None else self.reply(404, {"error": "소스를 찾지 못했어요"})
             if u.path == "/api/debug/state":
                 if dbg is None:
                     return self.reply(200, {"session": False})
                 return self.reply(200, dict(dbg.state(int(q.get("frame", ["0"])[0])), session=True))
         except (debug.DebugError, ValueError) as ex:
             return self.reply(400, {"error": str(ex)})
-        self.reply(404, {"error": "없는 API"})
+        self.reply(404, {"error": "없는 API예요"})
 
     def debug_post(self, req):
         global dbg
@@ -217,7 +217,7 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             for k in ("loc", "expr"):
                 if "\n" in str(req.get(k, "")) or "\r" in str(req.get(k, "")):
-                    raise debug.DebugError("줄바꿈은 쓸 수 없음")
+                    raise debug.DebugError("줄바꿈은 쓸 수 없어요")
             if what == "start":
                 if dbg is not None:
                     dbg.close()
@@ -225,7 +225,7 @@ class Handler(SimpleHTTPRequestHandler):
                 dbg = debug.Session(req.get("mode"), req.get("test"), req.get("icount"), bool(req.get("external")))
                 return self.reply(200, {"ok": True, "port": dbg.port})
             if dbg is None:
-                return self.reply(409, {"error": "디버거 세션이 없음"})
+                return self.reply(409, {"error": "열린 디버거 세션이 없어요"})
             if what == "stop":
                 dbg.close()
                 dbg = None
@@ -238,7 +238,7 @@ class Handler(SimpleHTTPRequestHandler):
             elif what == "eval":
                 return self.reply(200, {"value": dbg.evaluate(str(req.get("expr")), int(req.get("frame") or 0))})
             else:
-                return self.reply(404, {"error": "없는 API"})
+                return self.reply(404, {"error": "없는 API예요"})
             return self.reply(200, {"ok": True})
         except (debug.DebugError, ValueError, TypeError, OSError) as ex:
             return self.reply(400, {"error": str(ex)})

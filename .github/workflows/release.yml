@@ -15,7 +15,7 @@ jobs:
       - name: 태그와 VERSION 일치 확인
         run: |
           ver="v$(tr -d '[:space:]' < tools/thread-viz/VERSION)"
-          [ "$ver" = "$GITHUB_REF_NAME" ] || { echo "::error::태그 $GITHUB_REF_NAME 와 VERSION($ver)이 다름"; exit 1; }
+          [ "$ver" = "$GITHUB_REF_NAME" ] || { echo "::error::태그 $GITHUB_REF_NAME 와 VERSION($ver)이 달라요"; exit 1; }
       - name: 릴리스 생성
         env:
           GH_TOKEN: ${{ github.token }}

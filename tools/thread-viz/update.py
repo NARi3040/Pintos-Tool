@@ -4,7 +4,7 @@
   python3 tools/thread-viz/update.py            새 버전이 있으면 받아서 적용
   python3 tools/thread-viz/update.py --check    확인만
   python3 tools/thread-viz/update.py --auto     run.sh가 시작할 때 부름. 새 버전이 있으면 바로 적용(종료 코드 10).
-                                                최신이면 "최신 버전입니다!", 네트워크가 안 되면 실패했다고 알리고 끝남
+                                                최신이면 "최신 버전이에요", 네트워크가 안 되면 실패했다고 알리고 끝남
 
 환경 변수: THREAD_VIZ_REPO (기본 NARi3040/Pintos-Tool), THREAD_VIZ_BASE (기본 https://github.com/<repo>/releases/latest/download)
 버전은 릴리스 파일 latest.json으로 확인함 (GitHub API가 아니라 호출 횟수 제한이 없음)
@@ -68,7 +68,7 @@ def apply(data):
             for m in members:
                 # 일반 파일만, tools/thread-viz/ 아래만 허용 (.. 이나 절대경로, 링크 거부)
                 if not m.isfile() or not m.name.startswith(PREFIX) or ".." in m.name.split("/"):
-                    sys.exit(f"업데이트 파일에 허용 안 되는 항목이 있음: {m.name}")
+                    sys.exit(f"업데이트 파일에 허용되지 않는 항목이 있어요: {m.name}")
             names = []
             for m in members:
                 rel = m.name[len(PREFIX):]
@@ -93,18 +93,18 @@ def main():
         ver, body = latest(5 if auto or check else 15)
     except Exception as e:
         if auto:
-            print(f"[thread-viz] v{cur} - 업데이트 확인 실패 ({e}). 지금 버전으로 실행함")
+            print(f"[thread-viz] v{cur} - 업데이트를 확인하지 못했어요 ({e}). 지금 버전으로 실행해요")
         if check or auto:
             sys.exit(0)
-        sys.exit(f"업데이트 서버에 연결 못 함: {e}")
+        sys.exit(f"업데이트 서버에 연결하지 못했어요: {e}")
     if ver <= cur:
         if not check:
-            print(f"[thread-viz] v{cur} - 최신 버전입니다!")
+            print(f"[thread-viz] v{cur} - 최신 버전이에요")
         return
     if check:
-        print(f"[thread-viz] 새 버전 v{ver} 있음 (지금 v{cur}). 업데이트: python3 tools/thread-viz/update.py")
+        print(f"[thread-viz] 새 버전 v{ver}이 있어요 (지금 v{cur}). 업데이트: python3 tools/thread-viz/update.py")
         return
-    print(f"[thread-viz] 새 버전 v{ver} 발견 (지금 v{cur}). 업데이트함")
+    print(f"[thread-viz] 새 버전 v{ver}을 찾았어요 (지금 v{cur}). 업데이트할게요")
     if body:
         # 첫 줄이 요약, 나머지는 자세한 내용 (빈 줄은 건너뜀)
         lines = body.splitlines()
@@ -115,12 +115,12 @@ def main():
     data = download(f"{BASE}/thread-viz.tar.gz", 120)
     want = get(f"{BASE}/thread-viz.tar.gz.sha256", 15).decode().split()[0]
     if hashlib.sha256(data).hexdigest() != want:
-        sys.exit("  sha256이 안 맞음. 받은 파일이 깨졌으니 적용 안 함")
-    print("  sha256 확인 완료. 파일 교체 중")
+        sys.exit("  sha256이 맞지 않아요. 받은 파일이 깨져서 적용하지 않았어요")
+    print("  sha256을 확인했어요. 파일을 교체하는 중이에요")
     names = apply(data)
     for n in names:
         print(f"    - {n}")
-    print(f"[thread-viz] v{cur} -> v{ver} 업데이트 완료 ({len(names)}개 파일)")
+    print(f"[thread-viz] v{cur} -> v{ver} 업데이트를 마쳤어요 (파일 {len(names)}개)")
     if auto:
         sys.exit(10)
 

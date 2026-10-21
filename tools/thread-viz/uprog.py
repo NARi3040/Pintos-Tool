@@ -344,7 +344,7 @@ def on_thread_exit():
         try:
             vm_died_in_fault()
         except (gdb.error, ValueError, IndexError, RuntimeError) as ex:
-            gdb.write("trace warning: fault 중 종료 분석 실패 (%r)\n" % ex)
+            gdb.write("trace warning: fault 중 종료를 분석하지 못했어요 (%r)\n" % ex)
     exit_ev[i] = len(events)
     record("exit", target=i)
     dead.add(i)
@@ -881,7 +881,7 @@ def save(status):
     try:
         syms = user_syms()
     except Exception as ex:
-        gdb.write("trace warning: 유저 심볼 풀이 실패 (%r)\n" % ex)
+        gdb.write("trace warning: 유저 심볼을 풀이하지 못했어요 (%r)\n" % ex)
         syms = {}
     src = {p: open(os.path.join(ROOT, p), errors="replace").read() for p in sorted(sources)}
     text = json.dumps({"kind": "userprog", "threads": info, "events": events, "sources": src, "status": status,
@@ -929,7 +929,7 @@ def finish():
                     try:
                         st = stuck()
                     except Exception as ex:
-                        gdb.write("trace warning: 멈춘 스레드 분석 실패 (%r)\n" % ex)
+                        gdb.write("trace warning: 멈춘 스레드를 분석하지 못했어요 (%r)\n" % ex)
                         st = []
                     record(status, secs=TIMEOUT, stuck=st)
                 break
@@ -1028,15 +1028,15 @@ try:
     specs.append(("free", on_free))
     MALLOC = True
 except gdb.error:
-    gdb.write("trace warning: malloc.c의 arena 구조를 못 찾아, free한 lock/sema를 계속 읽을 수 있음\n")
+    gdb.write("trace warning: malloc.c의 arena 구조를 찾지 못해, free한 lock/sema를 계속 읽을 수 있어요\n")
 try:
     a = sysret_addr()
     if a:
         specs.append(("*" + a, on_sysret))
     else:
-        gdb.write("trace warning: syscall_entry에서 복귀 지점을 못 찾아 시스템 콜 반환값은 기록 안 함\n")
+        gdb.write("trace warning: syscall_entry에서 복귀 지점을 찾지 못해 시스템 콜 반환값은 기록하지 않아요\n")
 except gdb.error as ex:
-    gdb.write("trace warning: syscall_entry 분석 실패 (%s)\n" % ex)
+    gdb.write("trace warning: syscall_entry를 분석하지 못했어요 (%s)\n" % ex)
 for fn, cb in (("palloc_get_multiple", on_palloc_out), ("file_open", file_ret("open")),
                ("file_reopen", file_ret("reopen")), ("file_duplicate", file_ret("dup"))) + ((("malloc", on_malloc_out),) if MALLOC else ()):
     try:
@@ -1044,7 +1044,7 @@ for fn, cb in (("palloc_get_multiple", on_palloc_out), ("file_open", file_ret("o
     except gdb.error:
         r = None
     if r is None:
-        gdb.write("trace warning: %s의 복귀 지점을 못 찾아 누수 검사에서 뺌\n" % fn)
+        gdb.write("trace warning: %s의 복귀 지점을 찾지 못해 누수 검사에서 뺐어요\n" % fn)
         MALLOC = MALLOC and fn != "malloc"
         continue
     specs.append(("*" + r, cb))
@@ -1057,7 +1057,7 @@ try:
     VM = True
 except gdb.error as ex:
     if "vm_try_handle_fault" not in str(ex):   # VM 빌드인데 원본 구조체 필드가 없음
-        gdb.write("trace warning: VM 구조(struct page/frame의 va, frame, kva, thread의 pml4)를 못 찾아 가상 메모리 기록을 끔 (%s)\n" % ex)
+        gdb.write("trace warning: VM 구조(struct page/frame의 va, frame, kva, thread의 pml4)를 찾지 못해 가상 메모리 기록을 껐어요 (%s)\n" % ex)
 if VM:
     specs += [("uninit_new", on_uninit_new), ("anon_initializer", on_vm_init(1)), ("file_backed_initializer", on_vm_init(2)),
               ("pml4_set_page", on_set_page), ("pml4_clear_page", on_clear_page), ("pml4_destroy", on_pml4_destroy),
@@ -1071,9 +1071,9 @@ if VM:
     if VM_RET:
         specs = [x for x in specs if x[0] != "page_fault"] + [("*" + VM_RET, on_vm_ret)]
     else:
-        gdb.write("trace warning: vm_try_handle_fault의 복귀 지점을 못 찾아 fault 처리 결과는 기록 안 함\n")
+        gdb.write("trace warning: vm_try_handle_fault의 복귀 지점을 찾지 못해 fault 처리 결과는 기록하지 않아요\n")
 for spec, fn in specs:
     try:
         HOOKS.append(Hook(spec, fn))
     except gdb.error:
-        gdb.write("trace warning: %s 함수가 없어 이 이벤트는 기록 안 함\n" % spec)
+        gdb.write("trace warning: %s 함수가 없어 이 이벤트는 기록하지 않아요\n" % spec)
