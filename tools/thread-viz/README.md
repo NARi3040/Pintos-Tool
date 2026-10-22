@@ -47,7 +47,7 @@ python3 tools/thread-viz/update.py --check   # 확인만
 
 - GitHub Releases(`NARi3040/Pintos-Tool`)의 최신 `thread-viz.tar.gz`를 받아 sha256을 확인한 뒤 `tools/thread-viz/`에 덮어써요. 실패하면 지금 버전으로 계속 실행해요
 - `traces/`, `data.js`, `progress.json`은 건드리지 않아요. `baseline.js`는 이미 있으면 덮어쓰지 않아요
-- 버전은 `VERSION` 파일의 정수예요
+- 버전은 `VERSION` 파일의 `MAJOR.MINOR.PATCH`예요 (v23 다음이 1.0.0)
 - `bench/`의 벤치 소스는 같이 갱신되고, 이미 설치한 사본은 다음 `run.sh` 때 바뀐 것만 다시 복사해요. `pintos/`의 다른 파일은 건드리지 않아요
 
 ## 사용법

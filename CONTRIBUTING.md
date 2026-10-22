@@ -77,13 +77,17 @@ main ←─ PR (리뷰 1명) ←─ feat/bench-scale
 릴리스는 사용자 전원에게 자동 배포되므로 PR 머지와 분리해요.
 
 1. 배포할 변경이 모두 `main`에 머지된 상태에서 시작해요.
-2. `tools/thread-viz/VERSION`의 정수를 1 올리고 `chore: thread-viz v<N>`으로 커밋해요 (PR 경유).
+2. `tools/thread-viz/VERSION`을 올리고 `chore: thread-viz v<X.Y.Z>`로 커밋해요 (PR 경유). 버전은 `MAJOR.MINOR.PATCH`예요 (정수 v23 다음이 1.0.0).
+   - MAJOR: 다시 설치하거나 트레이스를 다시 떠야 하는 변경 (설치 방식, 트레이스 형식 등)
+   - MINOR: 새 검사나 기능
+   - PATCH: 오탐, 빌드 등 버그 수정만
+   - MINOR와 PATCH는 99까지예요. `latest.json`의 `version`을 `MAJOR*10000 + MINOR*100 + PATCH` 정수로 비교하기 때문이에요 (구버전 `update.py`도 이 정수로 업데이트를 판단해요)
 3. 최신 `main`에서 태그를 만들어 push해요. GitHub Actions(`.github/workflows/release.yml`)가 태그 커밋을 checkout해서 tarball, sha256, `latest.json`을 올려요. 태그 메시지(제목 + 본문)가 릴리스 노트가 돼요.
-   릴리스 노트는 `CHANGELOG.md`에 버전 절(`## v<N>`)로 먼저 써서 PR에 넣고, 그 절 내용을 태그 메시지로 써요. 첫 줄은 구버전 `update.py`가 업데이트할 때 보여 주는 한 줄이므로 사용자가 꼭 알아야 할 변화를 담아 주세요.
+   릴리스 노트는 `CHANGELOG.md`에 버전 절(`## v<X.Y.Z>`)로 먼저 써서 PR에 넣고, 그 절 내용을 태그 메시지로 써요. 첫 줄은 구버전 `update.py`가 업데이트할 때 보여 주는 한 줄이므로 사용자가 꼭 알아야 할 변화를 담아 주세요.
    ```bash
    git switch main && git pull
-   awk '/^## v<N>$/{f=1; next} /^## v/{f=0} f' CHANGELOG.md | sed '/./,$!d' > /tmp/notes.txt   # 그 버전 절만 꺼내요
-   git tag -a v<N> -F /tmp/notes.txt && git push origin v<N>
+   awk '/^## v<X.Y.Z>$/{f=1; next} /^## v/{f=0} f' CHANGELOG.md | sed '/./,$!d' > /tmp/notes.txt   # 그 버전 절만 꺼내요
+   git tag -a v<X.Y.Z> -F /tmp/notes.txt && git push origin v<X.Y.Z>
    ```
    태그와 `VERSION`이 다르면 Actions가 실패하고 릴리스는 만들어지지 않아요. 로컬에서 `tools/release-thread-viz.sh`를 직접 돌리지 마세요 (커밋하지 않은 로컬 파일이 배포될 수 있어요).
 4. Actions 탭에서 성공했는지 보고, 다른 Pintos 저장소에서 설치 명령(README의 `curl ... | tar`)과 자동 업데이트를 한 번씩 확인해요.
