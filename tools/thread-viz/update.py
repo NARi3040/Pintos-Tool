@@ -7,7 +7,9 @@
                                                 최신이면 "최신 버전이에요", 네트워크가 안 되면 실패했다고 알리고 끝남
 
 환경 변수: THREAD_VIZ_REPO (기본 NARi3040/Pintos-Tool), THREAD_VIZ_BASE (기본 https://github.com/<repo>/releases/latest/download)
-버전은 릴리스 파일 latest.json으로 확인함 (GitHub API가 아니라 호출 횟수 제한이 없음)
+버전은 릴리스 파일 latest.json으로 확인함 (GitHub API가 아니라 호출 횟수 제한이 없음).
+latest.json의 version은 정수(MAJOR*10000 + MINOR*100 + PATCH)이고 표시용 버전은 name에 있음.
+예전(v23 이하) update.py가 int(version)으로 비교하므로 version은 계속 정수로 둠
 """
 import hashlib, json, os, sys, tarfile, tempfile, urllib.request
 
@@ -47,16 +49,25 @@ def download(url, timeout):
     return bytes(buf)
 
 
+def code(name):
+    """'1.2.3' -> 10203. 예전 정수 버전 '23'은 23 그대로"""
+    if "." not in name:
+        return int(name)
+    major, minor, patch = map(int, name.split("."))
+    return major * 10000 + minor * 100 + patch
+
+
 def local_version():
     try:
-        return int(open(os.path.join(HERE, "VERSION")).read().strip())
+        name = open(os.path.join(HERE, "VERSION")).read().strip()
+        return code(name), name
     except (OSError, ValueError):
-        return 0
+        return 0, "?"
 
 
 def latest(timeout):
     info = json.loads(get(f"{BASE}/latest.json", timeout))
-    return int(info["version"]), (info.get("notes") or "").strip()
+    return int(info["version"]), str(info.get("name") or info["version"]), (info.get("notes") or "").strip()
 
 
 def apply(data):
@@ -88,23 +99,23 @@ def apply(data):
 def main():
     check = "--check" in sys.argv
     auto = "--auto" in sys.argv
-    cur = local_version()
+    cur, cur_name = local_version()
     try:
-        ver, body = latest(5 if auto or check else 15)
+        ver, name, body = latest(5 if auto or check else 15)
     except Exception as e:
         if auto:
-            print(f"[thread-viz] v{cur} - 업데이트를 확인하지 못했어요 ({e}). 지금 버전으로 실행해요")
+            print(f"[thread-viz] v{cur_name} - 업데이트를 확인하지 못했어요 ({e}). 지금 버전으로 실행해요")
         if check or auto:
             sys.exit(0)
         sys.exit(f"업데이트 서버에 연결하지 못했어요: {e}")
     if ver <= cur:
         if not check:
-            print(f"[thread-viz] v{cur} - 최신 버전이에요")
+            print(f"[thread-viz] v{cur_name} - 최신 버전이에요")
         return
     if check:
-        print(f"[thread-viz] 새 버전 v{ver}이 있어요 (지금 v{cur}). 업데이트: python3 tools/thread-viz/update.py")
+        print(f"[thread-viz] 새 버전 v{name}이 있어요 (지금 v{cur_name}). 업데이트: python3 tools/thread-viz/update.py")
         return
-    print(f"[thread-viz] 새 버전 v{ver}을 찾았어요 (지금 v{cur}). 업데이트할게요")
+    print(f"[thread-viz] 새 버전 v{name}을 찾았어요 (지금 v{cur_name}). 업데이트할게요")
     if body:
         # 첫 줄이 요약, 나머지는 자세한 내용 (빈 줄은 건너뜀)
         lines = body.splitlines()
@@ -120,7 +131,7 @@ def main():
     names = apply(data)
     for n in names:
         print(f"    - {n}")
-    print(f"[thread-viz] v{cur} -> v{ver} 업데이트를 마쳤어요 (파일 {len(names)}개)")
+    print(f"[thread-viz] v{cur_name} -> v{name} 업데이트를 마쳤어요 (파일 {len(names)}개)")
     if auto:
         sys.exit(10)
 

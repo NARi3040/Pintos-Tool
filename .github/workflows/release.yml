@@ -1,6 +1,6 @@
-# v<N> 태그를 push하면 그 태그 커밋을 checkout해서 thread-viz 릴리스를 만듦.
+# v<MAJOR.MINOR.PATCH> 태그를 push하면 그 태그 커밋을 checkout해서 thread-viz 릴리스를 만듦.
 # 로컬 작업 폴더 상태와 무관하게 배포 내용 = 태그 커밋이 되도록 러너에서만 릴리스함.
-# 릴리스 노트는 annotated 태그 메시지(제목 + 본문)를 씀: git tag -a v14 -F notes.txt (CHANGELOG.md의 그 버전 절)
+# 릴리스 노트는 annotated 태그 메시지(제목 + 본문)를 씀: git tag -a v1.0.0 -F notes.txt (CHANGELOG.md의 그 버전 절)
 name: release
 on:
   push:
